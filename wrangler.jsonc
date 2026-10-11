@@ -13,6 +13,6 @@
   // 可选：站点名称、是否要求登录才能浏览首页（修改后重新部署生效）
   "vars": {
     "SITE_TITLE": "网址导航",
-    "REQUIRE_LOGIN": "true"
+    "REQUIRE_LOGIN": "false"
   }
 }
