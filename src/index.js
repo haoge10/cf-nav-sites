@@ -833,7 +833,7 @@ html.focus .stage{display:block;position:fixed;left:0;right:0;top:var(--tb);bott
 .fcard{
   --lx:50%;--ly:30%;--li:0;--sx:30%;
   --spec:rgba(255,255,255,.95);--sweep:rgba(255,255,255,.65);
-  position:absolute;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:8px 6px 10px;border-radius:22px;text-align:center;
+  position:absolute;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:8px 6px 10px;border-radius:12px;text-align:center;
   /* 钢琴键白：微暖的象牙白，上半部一层带硬边的亮面，底部一道键面的暗边 */
   background:
     linear-gradient(180deg,rgba(255,255,255,.95) 0%,rgba(255,255,255,.4) 42%,rgba(255,255,255,0) 43%),
@@ -856,7 +856,7 @@ html.focus .stage{display:block;position:fixed;left:0;right:0;top:var(--tb);bott
 .fcard::after{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;
   background:radial-gradient(circle at var(--lx) var(--ly),var(--spec),transparent 62%);opacity:var(--li)}
 .fcard>*{position:relative;z-index:1}
-.fcard .ico{width:var(--ico);height:var(--ico);border-radius:calc(var(--ico)*.28)}
+.fcard .ico{width:var(--ico);height:var(--ico);border-radius:calc(var(--ico)*.22)}
 .fcard .ico-fb{font-size:calc(var(--ico)*.45)}
 .fn{flex:none;max-width:100%;font-size:13px;font-weight:600;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
 .dots{position:absolute;right:8px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;z-index:6}
