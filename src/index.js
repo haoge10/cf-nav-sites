@@ -832,19 +832,24 @@ html.focus .stage{display:block;position:fixed;left:0;right:0;top:var(--tb);bott
 .fpage{position:absolute;left:0;right:0;height:100%}
 .fcard{
   --lx:50%;--ly:30%;--li:0;--sx:30%;
-  --m1:#f7f8fa;--m2:#e9ecf1;--m3:#d9dde5;--m4:#eef0f4;
-  --hl:rgba(255,255,255,.95);--sh:rgba(20,24,35,.14);--edge:rgba(20,24,35,.10);--spec:rgba(255,255,255,.95);--sweep:rgba(255,255,255,.75);
+  --spec:rgba(255,255,255,.95);--sweep:rgba(255,255,255,.65);
   position:absolute;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:8px 6px 10px;border-radius:22px;text-align:center;
-  /* 金属质感：对角线渐变 + 中间一条硬边（模拟地平线反光），再叠高光与暗边 */
-  background:linear-gradient(158deg,var(--m1) 0%,var(--m2) 44%,var(--m3) 56%,var(--m4) 100%);
-  box-shadow:inset 0 1px 0 var(--hl),inset 0 -2px 3px var(--sh),inset 0 0 0 1px var(--edge),0 1px 2px rgba(20,24,35,.10),0 12px 22px -14px rgba(20,24,35,.45);
+  /* 钢琴键白：微暖的象牙白，上半部一层带硬边的亮面，底部一道键面的暗边 */
+  background:
+    linear-gradient(180deg,rgba(255,255,255,.95) 0%,rgba(255,255,255,.4) 42%,rgba(255,255,255,0) 43%),
+    linear-gradient(180deg,#fefdf9 0%,#f7f4ec 68%,#ede8db 100%);
+  box-shadow:inset 0 1px 0 #fff,inset 0 -3px 0 rgba(120,105,70,.13),inset 0 0 0 1px rgba(60,50,30,.11),0 1px 2px rgba(60,50,30,.12),0 12px 22px -14px rgba(60,50,30,.45);
 }
+/* 钢琴烤漆黑：近乎纯黑的深色底，上半部一块带硬边的镜面反光，边缘一圈细高光 */
 [data-theme=dark] .fcard{
-  --m1:#34363d;--m2:#1c1d22;--m3:#0e0f12;--m4:#1b1c21;
-  --hl:rgba(255,255,255,.22);--sh:rgba(0,0,0,.65);--edge:rgba(255,255,255,.07);--spec:rgba(255,255,255,.30);--sweep:rgba(255,255,255,.14);
-  box-shadow:inset 0 1px 0 var(--hl),inset 0 -2px 3px var(--sh),inset 0 0 0 1px var(--edge),0 1px 2px rgba(0,0,0,.5),0 14px 24px -14px rgba(0,0,0,.9);
+  --spec:rgba(255,255,255,.32);--sweep:rgba(255,255,255,.11);
+  background:
+    linear-gradient(180deg,rgba(255,255,255,.17) 0%,rgba(255,255,255,.055) 48%,rgba(255,255,255,0) 48.6%),
+    radial-gradient(120% 90% at 18% 0%,rgba(255,255,255,.07),transparent 60%),
+    linear-gradient(165deg,#16171b 0%,#050506 50%,#000 100%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.42),inset 0 -1px 0 rgba(255,255,255,.07),inset 0 0 0 1px rgba(255,255,255,.07),0 1px 2px rgba(0,0,0,.6),0 14px 26px -14px rgba(0,0,0,.95);
 }
-/* 扫光：随鼠标水平位置在卡片上滑过，像金属反光 */
+/* 扫光：随鼠标水平位置在卡片上滑过，像漆面 / 琴键上的反光 */
 .fcard::before{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;
   background:linear-gradient(112deg,transparent 36%,var(--sweep) 47%,transparent 58%);background-size:300% 100%;background-position:var(--sx) 0;opacity:.8;transition:background-position .25s ease-out}
 /* 点光源高光：跟随鼠标，靠近时才亮 */
