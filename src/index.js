@@ -1113,7 +1113,7 @@ function buildFocus(first){
 /* 鼠标放大镜：按行、按列分别放大靠近鼠标的那几行 / 几列（像 Dock 的放大效果）。
    每张卡片都落在各自的格子里，格子按放大后的尺寸重新排布，所以放大的卡片之间不会互相遮挡；
    可用空间不够时，其余行列会略微收缩来让位 */
-var LENS_A=.45,LENS_R=2.6; /* 放大幅度、影响范围（以卡片间距为单位）；实际峰值约 1.2~1.3 倍，取决于屏幕剩余空间 */
+var LENS_A=.25,LENS_R=1.2; /* 放大幅度、影响范围（以卡片间距为单位）；实际峰值约 1.2~1.3 倍，取决于屏幕剩余空间 */
 function bell(t){return t<1?(1+Math.cos(Math.PI*t))/2:0}
 function lensAxis(n,o,m,avail){
   var st=fS+fGeo.gap,f=[],sum=0,i,gaps=(n-1)*fGeo.gap;
