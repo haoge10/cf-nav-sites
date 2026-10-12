@@ -838,8 +838,6 @@ html.focus .stage{display:block;position:fixed;left:0;right:0;top:var(--tb);bott
   /* 金属质感：对角线渐变 + 中间一条硬边（模拟地平线反光），再叠高光与暗边 */
   background:linear-gradient(158deg,var(--m1) 0%,var(--m2) 44%,var(--m3) 56%,var(--m4) 100%);
   box-shadow:inset 0 1px 0 var(--hl),inset 0 -2px 3px var(--sh),inset 0 0 0 1px var(--edge),0 1px 2px rgba(20,24,35,.10),0 12px 22px -14px rgba(20,24,35,.45);
-  will-change:transform,filter;
-  transition:transform .16s ease-out,filter .28s ease-out,opacity .28s ease-out;
 }
 [data-theme=dark] .fcard{
   --m1:#34363d;--m2:#1c1d22;--m3:#0e0f12;--m4:#1b1c21;
@@ -1050,7 +1048,7 @@ document.addEventListener('keydown',function(e){
   }
 });
 /* ---------- 聚焦模式 ---------- */
-var fIndex=0,fCap=1,fPages=0,fWheel=0,fItems=[],fS=100,fMouse=null,fRaf=0,fGeo={};
+var fIndex=0,fCap=1,fPages=0,fWheel=0,fItems=[],fS=100,fMouse=null,fRaf=0;
 function focusOn(){return document.documentElement.classList.contains('focus')}
 /* 按分数降序；分数相同保持原有的分类 / 链接顺序 */
 function rankedLinks(){
@@ -1078,20 +1076,12 @@ function buildFocus(first){
   }
   spiral.sort(function(a,b){return a.d-b.d||a.a-b.a});
   var h='',meta=[];
-  var gw=cols*s+(cols-1)*gap,gh=rows*s+(rows-1)*gap;
-  var maxB=window.matchMedia&&matchMedia('(hover:none)').matches?2:4; /* 触屏没有鼠标放大镜，模糊少一点 */
   for(var p=0;p<n;p++){
     h+='<div class="fpage" style="top:'+(p*100)+'%">';
     meta[p]=[];
     list.slice(p*cap,(p+1)*cap).forEach(function(l,k){
       var cell=p===0?spiral[k].i:k;
-      /* 景深：第一屏越靠外越模糊（焦点在正中心）；后面几屏焦点在左上角 */
-      var ccx=ox+(cell%cols)*(s+gap)+s/2,ccy=oy+Math.floor(cell/cols)*(s+gap)+s/2;
-      var fx=p===0?sw/2:ox+s/2,fy=p===0?sh/2:oy+s/2;
-      var dmax=p===0?Math.sqrt(Math.pow(gw/2-s/2,2)+Math.pow(gh/2-s/2,2)):Math.sqrt(Math.pow(gw-s,2)+Math.pow(gh-s,2));
-      var t=Math.max(0,Math.min(1,(Math.sqrt(Math.pow(ccx-fx,2)+Math.pow(ccy-fy,2))/Math.max(1,dmax)-.18)/.82));
-      t=t*t*(3-2*t);
-      meta[p].push({cx:ccx,cy:ccy,col:cell%cols,row:Math.floor(cell/cols),b:maxB*t,o:1-.3*t});
+      meta[p].push({cx:ox+(cell%cols)*(s+gap)+s/2,cy:oy+Math.floor(cell/cols)*(s+gap)+s/2});
       h+='<a class="fcard" data-id="'+esc(l.id)+'" href="'+esc(l.url)+'" target="_blank" rel="noopener noreferrer" title="'+esc(l.title)+'" style="width:'+s+'px;height:'+s+'px;left:'+(ox+(cell%cols)*(s+gap))+'px;top:'+(oy+Math.floor(cell/cols)*(s+gap))+'px">'+
         U.icon(l)+'<span class="fn">'+esc(l.title)+'</span></a>';
     });
@@ -1101,7 +1091,7 @@ function buildFocus(first){
   if(n>1)for(var d=0;d<n;d++)dots+='<button class="dot" type="button" data-i="'+d+'" aria-label="第 '+(d+1)+' 屏"></button>';
   stage.style.setProperty('--ico',Math.round(s*.38)+'px');
   stage.innerHTML='<div class="track">'+h+'</div>'+(n>1?'<div class="dots">'+dots+'</div>':'');
-  fCap=cap;fPages=n;fS=s;fGeo={cols:cols,rows:rows,ox:ox,oy:oy,gap:gap};
+  fCap=cap;fPages=n;fS=s;
   fItems=[];
   var pgEls=stage.querySelectorAll('.fpage');
   for(var q=0;q<n;q++){
@@ -1110,38 +1100,18 @@ function buildFocus(first){
   }
   goTo(Math.min(fIndex,n-1),true);
 }
-/* 鼠标放大镜：按行、按列分别放大靠近鼠标的那几行 / 几列（像 Dock 的放大效果）。
-   每张卡片都落在各自的格子里，格子按放大后的尺寸重新排布，所以放大的卡片之间不会互相遮挡；
-   可用空间不够时，其余行列会略微收缩来让位 */
-var LENS_A=.25,LENS_R=1.2; /* 放大幅度、影响范围（以卡片间距为单位）；实际峰值约 1.2~1.3 倍，取决于屏幕剩余空间 */
-function bell(t){return t<1?(1+Math.cos(Math.PI*t))/2:0}
-function lensAxis(n,o,m,avail){
-  var st=fS+fGeo.gap,f=[],sum=0,i,gaps=(n-1)*fGeo.gap;
-  for(i=0;i<n;i++){f[i]=1+(m==null?0:LENS_A*bell(Math.abs(o+i*st+fS/2-m)/(st*LENS_R)));sum+=f[i]}
-  var k=Math.min(1,(avail-gaps)/(sum*fS));
-  var total=sum*fS*k+gaps,mid=o+(n*fS+gaps)/2;
-  var pos=mid-total/2,out=[];
-  for(i=0;i<n;i++){var w=fS*f[i]*k;out.push({c:pos+w/2,w:w});pos+=w+fGeo.gap}
-  return out;
-}
+/* 金属高光：扫光随鼠标水平位置移动，鼠标靠近的卡片出现点光源高光（只改光泽，不缩放、不模糊） */
 function applyLens(){
   var items=fItems[fIndex];if(!items)return;
-  var R=fS*2.4,sw=stage.clientWidth;
-  var lx=lensAxis(fGeo.cols,fGeo.ox,fMouse?fMouse.x:null,sw-72),ly=lensAxis(fGeo.rows,fGeo.oy,fMouse?fMouse.y:null,stage.clientHeight-32);
+  var R=fS*3,sw=stage.clientWidth;
   for(var i=0;i<items.length;i++){
-    var m=items[i],el=m.el,infl=0,li=0;
+    var m=items[i],el=m.el,li=0;
     if(fMouse){
-      var dx=m.cx-fMouse.x,dy=m.cy-fMouse.y,d=Math.sqrt(dx*dx+dy*dy);
-      infl=bell(d/R);
-      var tl=Math.max(0,1-d/(R*1.3));li=tl*tl;
+      var dx=m.cx-fMouse.x,dy=m.cy-fMouse.y,tl=Math.max(0,1-Math.sqrt(dx*dx+dy*dy)/R);li=tl*tl;
       el.style.setProperty('--lx',(fMouse.x-(m.cx-fS/2))+'px');
       el.style.setProperty('--ly',(fMouse.y-(m.cy-fS/2))+'px');
       el.style.setProperty('--sx',(100-fMouse.x/Math.max(1,sw)*100).toFixed(1)+'%');
     }
-    var X=lx[m.col],Y=ly[m.row],sc=Math.min(X.w,Y.w)/fS;
-    el.style.transform=fMouse?'translate('+(X.c-m.cx).toFixed(1)+'px,'+(Y.c-m.cy).toFixed(1)+'px) scale('+sc.toFixed(3)+')':'';
-    el.style.filter='blur('+(m.b*(1-infl)).toFixed(2)+'px)';
-    el.style.opacity=(m.o+(1-m.o)*infl).toFixed(3);
     el.style.setProperty('--li',li.toFixed(3));
   }
 }
