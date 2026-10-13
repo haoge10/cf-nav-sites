@@ -739,6 +739,51 @@ window.NavUI=(function(){
     var t=e.target;
     if(t&&t.classList&&t.classList.contains('ico-img')&&t.parentNode){t.parentNode.innerHTML=fallback(t.getAttribute('data-t'))}
   },true);
+  /* 统一图标形状（只处理聚焦模式的卡片）：
+     1) 边缘整圈不透明的「满铺方图」→ 直接裁成统一圆角，不再套底板；
+     2) 透明底 / 圆形 / 异形的 logo → 裁掉多余空白、居中缩放到同样的视觉大小，放进同一块底板；
+     3) 按 logo 明暗挑底板：白色 logo 在亮色主题用深色底板，黑色 logo 在暗色主题用浅色底板，保证看得清。 */
+  function normalizeIcon(img){
+    if(img.getAttribute('data-n'))return;
+    img.setAttribute('data-n','1');
+    var ico=img.parentNode,kind='logo',tone='mid';
+    try{
+      var w=img.naturalWidth,h=img.naturalHeight;
+      if(!w||!h)throw 0;
+      var N=64,c=document.createElement('canvas');c.width=c.height=N;
+      var x=c.getContext('2d',{willReadFrequently:true});
+      x.drawImage(img,0,0,N,N);
+      var d=x.getImageData(0,0,N,N).data,k,i,j;
+      var edge=0,opq=0;
+      for(k=12;k<N-12;k++){
+        [d[(k)*4+3],d[((N-1)*N+k)*4+3],d[(k*N)*4+3],d[(k*N+N-1)*4+3]].forEach(function(a){edge++;if(a>200)opq++});
+      }
+      var minX=N,minY=N,maxX=-1,maxY=-1,ls=0,ln=0;
+      for(j=0;j<N;j++)for(i=0;i<N;i++){
+        var o=(j*N+i)*4,a=d[o+3];
+        if(a>24){
+          if(i<minX)minX=i;if(i>maxX)maxX=i;if(j<minY)minY=j;if(j>maxY)maxY=j;
+          if(a>100){ls+=(.2126*d[o]+.7152*d[o+1]+.0722*d[o+2])/255;ln++}
+        }
+      }
+      var lum=ln?ls/ln:.5;
+      tone=lum<.3?'dark':lum>.82?'light':'mid';
+      if(opq/edge>.9){kind='full'}
+      else if(maxX>=0){
+        var sx=minX/N*w,sy=minY/N*h,sw=(maxX-minX+1)/N*w,sh=(maxY-minY+1)/N*h;
+        var out=document.createElement('canvas');out.width=out.height=128;
+        var ox=out.getContext('2d'),sc=Math.min(128/sw,128/sh),dw=sw*sc,dh=sh*sc;
+        ox.imageSmoothingQuality='high';
+        ox.drawImage(img,sx,sy,sw,sh,(128-dw)/2,(128-dh)/2,dw,dh);
+        img.src=out.toDataURL('image/png');
+      }
+    }catch(e){}
+    if(ico){ico.setAttribute('data-k',kind);ico.setAttribute('data-tone',tone)}
+  }
+  document.addEventListener('load',function(e){
+    var t=e.target;
+    if(t&&t.classList&&t.classList.contains('ico-img')&&t.closest&&t.closest('.fcard'))normalizeIcon(t);
+  },true);
   return {esc:esc,hostOf:hostOf,norm:norm,icon:icon,fallback:fallback};
 })();`;
 
@@ -994,6 +1039,17 @@ html[data-theme=light].focus .stage::before{
 .fcard .ico img{
   padding:3px;
 }
+
+/* 统一图标形状：满铺方图直接铺满并裁成统一圆角；其余 logo 放进同一块底板，内边距一致 */
+.fcard .ico[data-k=full]{background:transparent;border-color:rgba(100,110,135,.16)}
+[data-theme=dark] .fcard .ico[data-k=full]{border-color:rgba(255,255,255,.08)}
+.fcard .ico[data-k=full] img{padding:0;object-fit:cover}
+.fcard .ico[data-k=logo]{background:#fff;border-color:rgba(100,110,135,.16)}
+.fcard .ico[data-k=logo] img{padding:17%}
+.fcard .ico[data-k=logo][data-tone=light]{background:#262a37;border-color:rgba(255,255,255,.08)}
+[data-theme=dark] .fcard .ico[data-k=logo]{background:rgba(255,255,255,.075);border-color:rgba(255,255,255,.08)}
+[data-theme=dark] .fcard .ico[data-k=logo][data-tone=dark]{background:#eef0f6;border-color:transparent}
+[data-theme=dark] .fcard .ico[data-k=logo][data-tone=light]{background:rgba(255,255,255,.075)}
 
 .fcard .ico-fb{
   font-size:calc(var(--ico)*.45);
