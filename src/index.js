@@ -15,6 +15,7 @@
 
 const DATA_KEY = 'nav:data';
 const CLICKS_KEY = 'nav:clicks';
+const PINS_KEY = 'nav:pins'; // 「常用网站」中被锁定的链接 id 列表
 const HALF_LIFE_DAYS = 30; // 点击权重每 30 天减半，常用榜跟随近期使用习惯
 const ICON_PREFIX = 'icon:';
 const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -213,6 +214,16 @@ async function getClickRecords(env, data) {
         }
         return out;
     } catch (e) { return {}; }
+}
+
+// 锁定列表：只保留仍存在的链接
+async function getPins(env, data) {
+    try {
+        const raw = await env.NAV_KV.get(PINS_KEY, 'json');
+        if (!Array.isArray(raw)) return [];
+        const ids = new Set(data.links.map(l => l.id));
+        return [...new Set(raw.filter(id => typeof id === 'string' && ids.has(id)))];
+    } catch (e) { return []; }
 }
 
 // 当前时刻的衰减后分数：{ 链接id: 分数 }（过低的忽略）
@@ -531,6 +542,21 @@ export default {
                 }
             }
 
+            if (path === '/api/pin' && request.method === 'POST') {
+                try {
+                    const b = await request.json();
+                    const id = String(b?.id ?? '');
+                    const data = await getData(env);
+                    if (!data.links.some(l => l.id === id)) return json({ error: '链接不存在' }, 404);
+                    const pins = (await getPins(env, data)).filter(x => x !== id);
+                    if (b?.pinned) pins.push(id);
+                    await env.NAV_KV.put(PINS_KEY, JSON.stringify(pins));
+                    return json({ success: true, pins });
+                } catch (e) {
+                    return json({ error: e.message || '操作失败' }, 400);
+                }
+            }
+
             if (path === '/api/icon' && request.method === 'POST') {
                 try {
                     const buf = await request.arrayBuffer();
@@ -605,7 +631,8 @@ export default {
             if (REQUIRE_LOGIN && !authed) return html(loginPage(false, TITLE, '/'));
             const data = await getData(env);
             const clicks = currentScores(await getClickRecords(env, data));
-            return html(homePage(data, TITLE, authed, clicks));
+            const pins = await getPins(env, data);
+            return html(homePage(data, TITLE, authed, clicks, pins));
         }
 
         return new Response('Not Found', { status: 404 });
@@ -897,6 +924,14 @@ const HOME_CSS = `
 .card{display:flex;align-items:center;gap:12px;padding:11px 12px;min-height:60px;min-width:0;background:var(--surface);border:1px solid var(--border);border-radius:12px;transition:transform .15s,border-color .15s,box-shadow .15s}
 .card:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:var(--shadow)}
 .card.first{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.card{position:relative}
+.pin{position:absolute;top:4px;right:4px;width:24px;height:24px;display:flex;align-items:center;justify-content:center;border:0;border-radius:6px;background:transparent;color:var(--faint);cursor:pointer;opacity:0;transition:opacity .15s,color .15s,background .15s;padding:0}
+.pin svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.card:hover .pin,.pin:focus-visible{opacity:1}
+.pin:hover{background:var(--accent-soft);color:var(--accent)}
+.pin.on{opacity:1;color:var(--accent)}
+.pin.on svg{fill:currentColor}
+@media(hover:none){.pin{opacity:.7}.pin.on{opacity:1}}
 .txt{min-width:0;display:flex;flex-direction:column}
 .t{font-weight:600;font-size:14px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .d{font-size:12px;line-height:1.4;margin-top:4px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -1160,20 +1195,31 @@ var $=function(s){return document.querySelector(s)};
 var side=$('#side'),main=$('#main'),input=$('#q'),stage=$('#stage'),fbtn=$('#focusBtn');
 var q='',active=null,lock=0;
 var TOP_N=8,clicks=window.__CLICKS__||{},byId={};
+var AUTHED=window.__AUTHED__===true,pins=(window.__PINS__||[]).slice();
 links.forEach(function(l){byId[l.id]=l});
+function isPinned(id){return pins.indexOf(id)!==-1}
+/* 锁定的链接始终在榜（占用名额，排在最前，按分数排序），其余名额按分数补满；锁定不影响点击计数 */
 function topLinks(){
-  return links.filter(function(l){return clicks[l.id]>0})
+  var pinned=links.filter(function(l){return isPinned(l.id)})
+    .sort(function(a,b){return (clicks[b.id]||0)-(clicks[a.id]||0)});
+  var rest=links.filter(function(l){return !isPinned(l.id)&&clicks[l.id]>0})
     .sort(function(a,b){return clicks[b.id]-clicks[a.id]})
-    .slice(0,TOP_N);
+    .slice(0,Math.max(0,TOP_N-pinned.length));
+  return pinned.concat(rest);
+}
+var PIN_SVG='<svg viewBox="0 0 24 24"><path d="M12 17v5M9 3h6l-1 6 3 3v2H7v-2l3-3z"/></svg>';
+function pinBtn(l){
+  var on=isPinned(l.id);
+  return '<button type="button" class="pin'+(on?' on':'')+'" data-pin="'+esc(l.id)+'" title="'+(on?'取消锁定':'锁定，不再被挤出常用')+'" aria-label="'+(on?'取消锁定':'锁定')+'" aria-pressed="'+on+'">'+PIN_SVG+'</button>';
 }
 
 function visible(l,c){
   if(!q)return true;
   return norm(l.title+' '+l.desc+' '+hostOf(l.url)+' '+c.name).indexOf(norm(q))!==-1;
 }
-function card(l,mark){
+function card(l,mark,withPin){
   return '<a class="card'+(mark?' first':'')+'" data-id="'+esc(l.id)+'" href="'+esc(l.url)+'" target="_blank" rel="noopener noreferrer"'+(l.desc?' title="'+esc(l.desc)+'"':'')+'>'+
-    U.icon(l)+'<span class="txt"><span class="t">'+esc(l.title)+'</span>'+(l.desc?'<span class="d">'+esc(l.desc)+'</span>':'')+'</span></a>';
+    U.icon(l)+'<span class="txt"><span class="t">'+esc(l.title)+'</span>'+(l.desc?'<span class="d">'+esc(l.desc)+'</span>':'')+'</span>'+(withPin&&AUTHED?pinBtn(l):'')+'</a>';
 }
 function render(){
   if(!links.length){
@@ -1187,7 +1233,7 @@ function render(){
     total+=top.length;
     sideH+='<a class="side-item" href="#cat-__top" data-cat="__top"><span class="nm">⭐ 常用网站</span><span class="n">'+top.length+'</span></a>';
     mainH+='<section class="sec" id="cat-__top" data-cat="__top"><h2>⭐ 常用网站<span class="cnt">近期常用</span></h2><div class="grid">'+
-      top.map(function(l){return card(l,false)}).join('')+'</div></section>';
+      top.map(function(l){return card(l,false,true)}).join('')+'</div></section>';
   }
   cats.forEach(function(c){
     var items=links.filter(function(l){return l.cat===c.id&&visible(l,c)});
@@ -1299,8 +1345,23 @@ function bump(id){
 }
 /* 把本机尚未上报的点击叠加到服务器给的分数上，保证本机榜单不滞后 */
 (function(){var p=readPend();Object.keys(p).forEach(function(k){if(byId[k])clicks[k]=(clicks[k]||0)+p[k]})})();
+/* 锁定按钮：不跳转、不计点击；乐观更新界面，失败则回滚 */
+main.addEventListener('click',function(e){
+  var b=e.target.closest('.pin');if(!b)return;
+  e.preventDefault();e.stopImmediatePropagation();
+  var id=b.getAttribute('data-pin');if(!id||!byId[id])return;
+  var want=!isPinned(id),prev=pins.slice();
+  pins=pins.filter(function(x){return x!==id});if(want)pins.push(id);
+  render();
+  fetch('/api/pin',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,pinned:want})})
+    .then(function(r){if(!r.ok)throw new Error(r.status===401?'登录已过期，请重新登录':'操作失败');return r.json()})
+    .then(function(r){if(r&&Array.isArray(r.pins)&&r.pins.join()!==pins.join()){pins=r.pins;render()}})
+    .catch(function(err){pins=prev;render();alert(err.message||'操作失败')});
+},true);
+main.addEventListener('auxclick',function(e){if(e.target.closest('.pin')){e.preventDefault();e.stopImmediatePropagation()}},true);
 function track(e){
   if(e.button===2)return;
+  if(e.target.closest('.pin'))return;
   var a=e.target.closest('a[data-id]');if(!a)return;
   bump(a.getAttribute('data-id'));
 }
@@ -1463,7 +1524,7 @@ render();
 if(focusOn()){fbtn.classList.add('on');fbtn.setAttribute('aria-pressed','true');buildFocus()}
 })();`;
 
-function homePage(data, title, authed, clicks) {
+function homePage(data, title, authed, clicks, pins) {
     const year = new Date().getFullYear();
     return `<!DOCTYPE html>
 <html lang="zh-CN" data-theme="dark">
@@ -1502,7 +1563,7 @@ ${HOME_CSS}
   <footer class="footer">© ${year} ${escapeHtml(title)}</footer>
 </div>
 <div class="stage" id="stage" aria-label="聚焦模式"></div>
-<script>window.__DATA__=${safeJson(data)};window.__CLICKS__=${safeJson(clicks || {})};</script>
+<script>window.__DATA__=${safeJson(data)};window.__CLICKS__=${safeJson(clicks || {})};window.__PINS__=${safeJson(pins || [])};window.__AUTHED__=${authed ? 'true' : 'false'};</script>
 <script>${COMMON_JS}</script>
 <script>${HOME_JS}</script>
 <script>${THEME_JS}</script>
