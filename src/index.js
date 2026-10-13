@@ -245,7 +245,7 @@ async function cleanupIcons(env, data) {
 // 抓取网站图标：先 Google 图标服务，再尝试站点自己的 /favicon.ico
 async function fetchFavicon(host) {
     const tries = [
-        `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`,
+        `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=128`,
         `https://${host}/favicon.ico`
     ];
     for (const u of tries) {
@@ -463,7 +463,7 @@ export default {
                 if (!ok) return new Response('Not Found', { status: 404 });
             }
             const cache = caches.default;
-            const cacheKey = new Request(url.origin + '/favicon/' + host);
+            const cacheKey = new Request(url.origin + '/favicon/' + host + '?s=128'); // 带 ?s=128：让之前缓存的 64px 旧图标失效
             const hit = await cache.match(cacheKey);
             if (hit) return hit;
             const icon = await fetchFavicon(host);
@@ -701,6 +701,15 @@ button{cursor:pointer}
 /* 图标：上传图 / 网站图标 / 首字母头像 */
 .ico{width:34px;height:34px;flex:none;border-radius:9px;overflow:hidden;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center}
 .ico img{width:100%;height:100%;object-fit:contain;padding:4px}
+.ico[data-k=full]{background:transparent;border-color:rgba(100,110,135,.16)}
+.ico[data-k=full] img{padding:0;object-fit:cover}
+.ico[data-k=logo]{background:#fff;border-color:rgba(100,110,135,.16)}
+.ico[data-k=logo] img{padding:17%}
+.ico[data-k=logo][data-tone=light]{background:#262a37;border-color:rgba(255,255,255,.08)}
+[data-theme=dark] .ico[data-k=full]{border-color:rgba(255,255,255,.08)}
+[data-theme=dark] .ico[data-k=logo]{background:rgba(255,255,255,.075);border-color:rgba(255,255,255,.08)}
+[data-theme=dark] .ico[data-k=logo][data-tone=dark]{background:#eef0f6;border-color:transparent}
+[data-theme=dark] .ico[data-k=logo][data-tone=light]{background:rgba(255,255,255,.075)}
 .ico-fb{width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:hsl(var(--h) 52% 46%);color:#fff;font-weight:650;font-size:15px}
 
 .search{position:relative;flex:1;min-width:0}
@@ -725,28 +734,29 @@ window.NavUI=(function(){
     var ch=Array.from(t)[0]||'?';
     return '<span class="ico-fb" style="--h:'+hue(t)+'">'+esc(ch.toUpperCase())+'</span>';
   }
+  /* 已经处理过的图标结果（按原始地址缓存），搜索 / 重新渲染时直接带上，避免闪烁和重复计算 */
+  var normCache={};
   function icon(l){
-    var inner;
-    if(l.icon){
-      inner='<img class="ico-img" alt="" loading="lazy" data-t="'+esc(l.title)+'" src="/icon/'+esc(l.icon)+'">';
-    }else{
-      var h=hostOf(l.url);
-      inner=h?'<img class="ico-img" alt="" loading="lazy" data-t="'+esc(l.title)+'" src="/favicon/'+encodeURIComponent(h)+'">':fallback(l.title);
-    }
-    return '<span class="ico">'+inner+'</span>';
+    var inner,src,t=esc(l.title);
+    if(l.icon){src='/icon/'+esc(l.icon)}
+    else{var h=hostOf(l.url);src=h?'/favicon/'+encodeURIComponent(h)+'?s=128':''}
+    if(!src)return '<span class="ico">'+fallback(l.title)+'</span>';
+    var c=normCache[src];
+    inner='<img class="ico-img" alt="" loading="lazy" data-t="'+t+'"'+(c?' data-n="1"':'')+' src="'+(c&&c.u?c.u:src)+'">';
+    return '<span class="ico"'+(c?' data-k="'+c.k+'" data-tone="'+c.t+'"':'')+'>'+inner+'</span>';
   }
   document.addEventListener('error',function(e){
     var t=e.target;
     if(t&&t.classList&&t.classList.contains('ico-img')&&t.parentNode){t.parentNode.innerHTML=fallback(t.getAttribute('data-t'))}
   },true);
-  /* 统一图标形状（只处理聚焦模式的卡片）：
+  /* 统一图标形状（首页普通模式、聚焦模式、管理页都生效）：
      1) 边缘整圈不透明的「满铺方图」→ 直接裁成统一圆角，不再套底板；
      2) 透明底 / 圆形 / 异形的 logo → 裁掉多余空白、居中缩放到同样的视觉大小，放进同一块底板；
      3) 按 logo 明暗挑底板：白色 logo 在亮色主题用深色底板，黑色 logo 在暗色主题用浅色底板，保证看得清。 */
   function normalizeIcon(img){
     if(img.getAttribute('data-n'))return;
     img.setAttribute('data-n','1');
-    var ico=img.parentNode,kind='logo',tone='mid';
+    var ico=img.parentNode,kind='logo',tone='mid',src0=img.getAttribute('src'),newUrl='';
     try{
       var w=img.naturalWidth,h=img.naturalHeight;
       if(!w||!h)throw 0;
@@ -775,14 +785,16 @@ window.NavUI=(function(){
         var ox=out.getContext('2d'),sc=Math.min(128/sw,128/sh),dw=sw*sc,dh=sh*sc;
         ox.imageSmoothingQuality='high';
         ox.drawImage(img,sx,sy,sw,sh,(128-dw)/2,(128-dh)/2,dw,dh);
-        img.src=out.toDataURL('image/png');
+        newUrl=out.toDataURL('image/png');
+        img.src=newUrl;
       }
     }catch(e){}
+    normCache[src0]={k:kind,t:tone,u:newUrl};
     if(ico){ico.setAttribute('data-k',kind);ico.setAttribute('data-tone',tone)}
   }
   document.addEventListener('load',function(e){
     var t=e.target;
-    if(t&&t.classList&&t.classList.contains('ico-img')&&t.closest&&t.closest('.fcard'))normalizeIcon(t);
+    if(t&&t.classList&&t.classList.contains('ico-img'))normalizeIcon(t);
   },true);
   return {esc:esc,hostOf:hostOf,norm:norm,icon:icon,fallback:fallback};
 })();`;
