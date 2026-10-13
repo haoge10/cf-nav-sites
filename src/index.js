@@ -822,151 +822,226 @@ const HOME_CSS = `
 .d{font-size:12px;line-height:1.4;margin-top:4px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .empty{text-align:center;color:var(--faint);padding:80px 0}
 .empty a{color:var(--accent)}
-/* 聚焦模式：整屏只有方形卡片，按点击次数从中心向外铺开，多屏用右侧圆点切换 */
+
+/* 聚焦模式：现代极简、低对比表面与克制交互 */
 .stage{display:none}
 #focusBtn.on{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
 html.focus,html.focus body{overflow:hidden}
 html.focus .page,html.focus .search{display:none}
-html.focus .stage{display:block;position:fixed;left:0;right:0;top:var(--tb);bottom:0;z-index:5;overflow:hidden}
-.track{position:absolute;left:0;right:0;top:0;height:100%;transition:transform .4s cubic-bezier(.3,.7,.2,1)}
-.fpage{position:absolute;left:0;right:0;height:100%}
 
+html.focus .stage{
+  display:block;
+  position:fixed;
+  left:0;
+  right:0;
+  top:var(--tb);
+  bottom:0;
+  z-index:5;
+  overflow:hidden;
+  background:var(--bg);
+  isolation:isolate;
+}
+
+/* 极轻微的环境色，不抢网站图标的视觉焦点 */
+html.focus .stage::before{
+  content:'';
+  position:absolute;
+  inset:0;
+  z-index:-1;
+  pointer-events:none;
+  background:radial-gradient(
+    ellipse at 50% 0%,
+    rgba(124,131,255,.055),
+    transparent 62%
+  );
+}
+
+html[data-theme=light].focus .stage::before{
+  background:radial-gradient(
+    ellipse at 50% 0%,
+    rgba(79,70,229,.035),
+    transparent 62%
+  );
+}
+
+.track{
+  position:absolute;
+  left:0;
+  right:0;
+  top:0;
+  height:100%;
+  transition:transform .4s cubic-bezier(.3,.7,.2,1);
+}
+
+.fpage{
+  position:absolute;
+  left:0;
+  right:0;
+  height:100%;
+}
+
+/* 卡片主体：低饱和表面、细边框、弱阴影 */
 .fcard{
-  --lx:50%;
-  --ly:30%;
-  --li:0;
-  --sx:30%;
-  --spec:rgba(255,255,255,.72);
-  --sweep:rgba(255,255,255,.20);
-
   position:absolute;
   overflow:hidden;
   display:flex;
   flex-direction:column;
   align-items:center;
   justify-content:center;
-  gap:7px;
-  padding:8px 6px 10px;
-  border-radius:15px;
+  gap:9px;
+  padding:8px 7px 10px;
+  border-radius:16px;
   text-align:center;
-  color:#252b43;
+  color:var(--text);
 
-  /* 浅色模式：柔和的白色与蓝紫渐变 */
-  background:
-    radial-gradient(
-      120% 85% at 12% 0%,
-      rgba(255,255,255,.95),
-      transparent 65%
-    ),
-    linear-gradient(
-      145deg,
-      #ffffff 0%,
-      #f1f3ff 54%,
-      #e8edfc 100%
-    );
+  background:rgba(255,255,255,.78);
+  border:1px solid rgba(100,110,135,.15);
 
-  border:1px solid rgba(116,130,190,.20);
+  -webkit-backdrop-filter:blur(14px) saturate(135%);
+  backdrop-filter:blur(14px) saturate(135%);
+
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.9),
+    0 2px 4px rgba(20,25,40,.025),
+    0 8px 24px -18px rgba(20,25,40,.24);
+
+  transition:
+    transform .2s cubic-bezier(.2,.7,.2,1),
+    background .2s ease,
+    border-color .2s ease,
+    box-shadow .2s ease;
+
+  -webkit-tap-highlight-color:transparent;
+}
+
+/* 深色主题：石墨灰表面，避免纯黑和厚重反光 */
+[data-theme=dark] .fcard{
+  background:rgba(30,33,43,.82);
+  border-color:rgba(255,255,255,.085);
+
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.055),
+    0 2px 5px rgba(0,0,0,.10),
+    0 10px 26px -20px rgba(0,0,0,.45);
+}
+
+/* 悬停：轻微浮起，边缘略微提亮 */
+.fcard:hover{
+  z-index:2;
+  transform:translateY(-2px) scale(1.015);
+  background:rgba(255,255,255,.96);
+  border-color:rgba(100,110,145,.25);
 
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,.95),
-    inset 0 0 0 1px rgba(255,255,255,.35),
-    0 3px 7px rgba(45,55,95,.08),
-    0 12px 24px -15px rgba(45,55,95,.28);
-
-  transition:border-color .18s,box-shadow .18s,background .18s;
+    0 5px 14px rgba(25,35,60,.055),
+    0 14px 28px -20px rgba(25,35,60,.20);
 }
 
-/* 深色模式：蓝紫石板色，避免卡片与背景融为一体 */
-[data-theme=dark] .fcard{
-  color:#f1f3ff;
-
-  --spec:rgba(190,202,255,.30);
-  --sweep:rgba(190,202,255,.12);
-
-  background:
-    radial-gradient(
-      120% 90% at 12% 0%,
-      rgba(137,151,220,.20),
-      transparent 62%
-    ),
-    linear-gradient(
-      145deg,
-      #292d40 0%,
-      #202437 56%,
-      #191c2b 100%
-    );
-
-  border:1px solid rgba(164,177,255,.17);
+[data-theme=dark] .fcard:hover{
+  background:rgba(42,46,59,.96);
+  border-color:rgba(180,190,255,.24);
 
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,.12),
-    inset 0 0 0 1px rgba(255,255,255,.025),
-    0 3px 8px rgba(0,0,0,.20),
-    0 12px 26px -15px rgba(0,0,0,.65);
+    inset 0 1px 0 rgba(255,255,255,.075),
+    0 5px 16px rgba(0,0,0,.16),
+    0 0 0 1px rgba(160,170,255,.035);
 }
 
-/* 鼠标悬停：淡紫色边框和轻微提亮 */
-.fcard:hover{
-  border-color:rgba(124,131,255,.62);
-
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,.16),
-    0 0 0 2px rgba(124,131,255,.10),
-    0 12px 26px -13px rgba(0,0,0,.42);
-}
-
-/* 扫光效果 */
-.fcard::before{
-  content:'';
-  position:absolute;
-  inset:0;
-  border-radius:inherit;
-  pointer-events:none;
-
-  background:
-    linear-gradient(
-      112deg,
-      transparent 34%,
-      var(--sweep) 48%,
-      transparent 62%
-    );
-
-  background-size:300% 100%;
-  background-position:var(--sx) 0;
-  opacity:.55;
-  transition:background-position .25s ease-out;
-}
-
-/* 跟随鼠标的柔和高光 */
+/* 彻底取消旧版金属扫光和鼠标点光源 */
+.fcard::before,
 .fcard::after{
-  content:'';
+  display:none;
+}
+
+/* 网站图标：保留图标本身，不加多余装饰 */
+.fcard .ico{
+  width:var(--ico);
+  height:var(--ico);
+  flex:none;
+  border-radius:calc(var(--ico)*.23);
+  background:var(--surface2);
+  border:1px solid rgba(100,110,135,.10);
+}
+
+[data-theme=dark] .fcard .ico{
+  border-color:rgba(255,255,255,.07);
+}
+
+.fcard .ico img{
+  padding:3px;
+}
+
+.fcard .ico-fb{
+  font-size:calc(var(--ico)*.45);
+}
+
+/* 网站名称：清晰、紧凑，避免过重 */
+.fn{
+  flex:none;
+  max-width:100%;
+  font-size:13px;
+  font-weight:560;
+  line-height:1.35;
+  letter-spacing:.005em;
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+  word-break:break-word;
+}
+
+/* 页面切换指示点 */
+.dots{
   position:absolute;
-  inset:0;
-  border-radius:inherit;
-  pointer-events:none;
-
-  background:
-    radial-gradient(
-      circle at var(--lx) var(--ly),
-      var(--spec),
-      transparent 68%
-    );
-
-  opacity:var(--li);
+  right:8px;
+  top:50%;
+  transform:translateY(-50%);
+  display:flex;
+  flex-direction:column;
+  z-index:6;
 }
 
-.fcard>*{
-  position:relative;
-  z-index:1;
+.dot{
+  width:24px;
+  height:16px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:none;
+  border:0;
+  padding:0;
+  cursor:pointer;
 }
 
-.fcard .ico{width:var(--ico);height:var(--ico);border-radius:calc(var(--ico)*.22)}
-.fcard .ico-fb{font-size:calc(var(--ico)*.45)}
-.fn{flex:none;max-width:100%;font-size:13px;font-weight:600;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
-.dots{position:absolute;right:8px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;z-index:6}
-.dot{width:24px;height:16px;display:flex;align-items:center;justify-content:center;background:none;border:0;padding:0;cursor:pointer}
-.dot::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--text);transition:background .2s}
-.dot.on::before{background:#9b9b9b}
+.dot::before{
+  content:'';
+  width:5px;
+  height:5px;
+  border-radius:50%;
+  background:var(--muted);
+  opacity:.42;
+  transition:transform .2s,opacity .2s,background .2s;
+}
+
+.dot.on::before{
+  background:var(--accent);
+  opacity:1;
+  transform:scale(1.35);
+}
+
+/* 触屏设备不使用悬停浮起效果 */
+@media(hover:none){
+  .fcard:hover{transform:none}
+}
+
+/* 尊重系统减少动态效果设置 */
+@media(prefers-reduced-motion:reduce){
+  .track,.fcard,.dot::before{
+    transition:none!important;
+  }
+}
+
 @media(max-width:860px){
   .page{padding:0 14px}
   .brand .bt{display:none}
