@@ -1073,13 +1073,15 @@ html[data-theme=light].focus .stage::before{
   max-width:100%;
   font-size:13px;
   font-weight:560;
-  line-height:1.35;
+  /* 固定行高：字号被缩小时，名称区高度不变，所有卡片的图标位置保持一致 */
+  height:18px;
+  line-height:18px;
   letter-spacing:.005em;
-  display:-webkit-box;
-  -webkit-line-clamp:2;
-  -webkit-box-orient:vertical;
+  /* 名称始终单行：名字太长时由脚本缩小字号（最小 9px）来放进卡片，实在放不下才用省略号 */
+  display:block;
+  white-space:nowrap;
   overflow:hidden;
-  word-break:break-word;
+  text-overflow:ellipsis;
 }
 
 /* 页面切换指示点 */
@@ -1367,6 +1369,8 @@ function buildFocus(first){
   stage.style.setProperty('--ico',Math.round(s*.38)+'px');
   stage.innerHTML='<div class="track">'+h+'</div>'+(n>1?'<div class="dots">'+dots+'</div>':'');
   fCap=cap;fPages=n;fS=s;
+  fitNames();
+  if(document.fonts&&document.fonts.ready)document.fonts.ready.then(fitNames);
   fItems=[];
   var pgEls=stage.querySelectorAll('.fpage');
   for(var q=0;q<n;q++){
@@ -1396,6 +1400,18 @@ stage.addEventListener('pointermove',function(e){
   var r=stage.getBoundingClientRect();fMouse={x:e.clientX-r.left,y:e.clientY-r.top};lensSoon();
 });
 stage.addEventListener('pointerleave',function(){fMouse=null;lensSoon()});
+/* 名称太长就缩小字号，让它在一行内放得下（最小 9px，再长就显示省略号） */
+function fitNames(){
+  var els=stage.querySelectorAll('.fn');
+  for(var i=0;i<els.length;i++){
+    var el=els[i];el.style.fontSize='';
+    var cw=el.clientWidth,sw=el.scrollWidth;
+    if(cw>0&&sw>cw){
+      var base=parseFloat(getComputedStyle(el).fontSize)||13;
+      el.style.fontSize=Math.max(9,Math.floor(base*cw/sw*2)/2)+'px';
+    }
+  }
+}
 function goTo(i,instant){
   i=Math.max(0,Math.min(fPages-1,i));fIndex=i;
   var t=stage.querySelector('.track');
