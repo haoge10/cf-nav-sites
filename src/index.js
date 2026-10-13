@@ -830,32 +830,136 @@ html.focus .page,html.focus .search{display:none}
 html.focus .stage{display:block;position:fixed;left:0;right:0;top:var(--tb);bottom:0;z-index:5;overflow:hidden}
 .track{position:absolute;left:0;right:0;top:0;height:100%;transition:transform .4s cubic-bezier(.3,.7,.2,1)}
 .fpage{position:absolute;left:0;right:0;height:100%}
+
 .fcard{
-  --lx:50%;--ly:30%;--li:0;--sx:30%;
-  --spec:rgba(255,255,255,.95);--sweep:rgba(255,255,255,.65);
-  position:absolute;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:8px 6px 10px;border-radius:12px;text-align:center;
-  /* 钢琴键白：微暖的象牙白，上半部一层带硬边的亮面，底部一道键面的暗边 */
+  --lx:50%;
+  --ly:30%;
+  --li:0;
+  --sx:30%;
+  --spec:rgba(255,255,255,.72);
+  --sweep:rgba(255,255,255,.20);
+
+  position:absolute;
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+  padding:8px 6px 10px;
+  border-radius:15px;
+  text-align:center;
+  color:#252b43;
+
+  /* 浅色模式：柔和的白色与蓝紫渐变 */
   background:
-    linear-gradient(180deg,rgba(255,255,255,.95) 0%,rgba(255,255,255,.4) 42%,rgba(255,255,255,0) 43%),
-    linear-gradient(180deg,#fefdf9 0%,#f7f4ec 68%,#ede8db 100%);
-  box-shadow:inset 0 1px 0 #fff,inset 0 -3px 0 rgba(120,105,70,.13),inset 0 0 0 1px rgba(60,50,30,.11),0 1px 2px rgba(60,50,30,.12),0 12px 22px -14px rgba(60,50,30,.45);
+    radial-gradient(
+      120% 85% at 12% 0%,
+      rgba(255,255,255,.95),
+      transparent 65%
+    ),
+    linear-gradient(
+      145deg,
+      #ffffff 0%,
+      #f1f3ff 54%,
+      #e8edfc 100%
+    );
+
+  border:1px solid rgba(116,130,190,.20);
+
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.95),
+    inset 0 0 0 1px rgba(255,255,255,.35),
+    0 3px 7px rgba(45,55,95,.08),
+    0 12px 24px -15px rgba(45,55,95,.28);
+
+  transition:border-color .18s,box-shadow .18s,background .18s;
 }
-/* 钢琴烤漆黑：近乎纯黑的深色底，上半部一块带硬边的镜面反光，边缘一圈细高光 */
+
+/* 深色模式：蓝紫石板色，避免卡片与背景融为一体 */
 [data-theme=dark] .fcard{
-  --spec:rgba(255,255,255,.32);--sweep:rgba(255,255,255,.11);
+  color:#f1f3ff;
+
+  --spec:rgba(190,202,255,.30);
+  --sweep:rgba(190,202,255,.12);
+
   background:
-    linear-gradient(180deg,rgba(255,255,255,.17) 0%,rgba(255,255,255,.055) 48%,rgba(255,255,255,0) 48.6%),
-    radial-gradient(120% 90% at 18% 0%,rgba(255,255,255,.07),transparent 60%),
-    linear-gradient(165deg,#16171b 0%,#050506 50%,#000 100%);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.42),inset 0 -1px 0 rgba(255,255,255,.07),inset 0 0 0 1px rgba(255,255,255,.07),0 1px 2px rgba(0,0,0,.6),0 14px 26px -14px rgba(0,0,0,.95);
+    radial-gradient(
+      120% 90% at 12% 0%,
+      rgba(137,151,220,.20),
+      transparent 62%
+    ),
+    linear-gradient(
+      145deg,
+      #292d40 0%,
+      #202437 56%,
+      #191c2b 100%
+    );
+
+  border:1px solid rgba(164,177,255,.17);
+
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.12),
+    inset 0 0 0 1px rgba(255,255,255,.025),
+    0 3px 8px rgba(0,0,0,.20),
+    0 12px 26px -15px rgba(0,0,0,.65);
 }
-/* 扫光：随鼠标水平位置在卡片上滑过，像漆面 / 琴键上的反光 */
-.fcard::before{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;
-  background:linear-gradient(112deg,transparent 36%,var(--sweep) 47%,transparent 58%);background-size:300% 100%;background-position:var(--sx) 0;opacity:.8;transition:background-position .25s ease-out}
-/* 点光源高光：跟随鼠标，靠近时才亮 */
-.fcard::after{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;
-  background:radial-gradient(circle at var(--lx) var(--ly),var(--spec),transparent 62%);opacity:var(--li)}
-.fcard>*{position:relative;z-index:1}
+
+/* 鼠标悬停：淡紫色边框和轻微提亮 */
+.fcard:hover{
+  border-color:rgba(124,131,255,.62);
+
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.16),
+    0 0 0 2px rgba(124,131,255,.10),
+    0 12px 26px -13px rgba(0,0,0,.42);
+}
+
+/* 扫光效果 */
+.fcard::before{
+  content:'';
+  position:absolute;
+  inset:0;
+  border-radius:inherit;
+  pointer-events:none;
+
+  background:
+    linear-gradient(
+      112deg,
+      transparent 34%,
+      var(--sweep) 48%,
+      transparent 62%
+    );
+
+  background-size:300% 100%;
+  background-position:var(--sx) 0;
+  opacity:.55;
+  transition:background-position .25s ease-out;
+}
+
+/* 跟随鼠标的柔和高光 */
+.fcard::after{
+  content:'';
+  position:absolute;
+  inset:0;
+  border-radius:inherit;
+  pointer-events:none;
+
+  background:
+    radial-gradient(
+      circle at var(--lx) var(--ly),
+      var(--spec),
+      transparent 68%
+    );
+
+  opacity:var(--li);
+}
+
+.fcard>*{
+  position:relative;
+  z-index:1;
+}
+
 .fcard .ico{width:var(--ico);height:var(--ico);border-radius:calc(var(--ico)*.22)}
 .fcard .ico-fb{font-size:calc(var(--ico)*.45)}
 .fn{flex:none;max-width:100%;font-size:13px;font-weight:600;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
