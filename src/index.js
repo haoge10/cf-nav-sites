@@ -625,13 +625,28 @@ const THEME_BTN = `<button class="icon-btn" id="themeBtn" type="button" aria-lab
 
 const THEME_JS = `
 (function(){
-  var b=document.getElementById('themeBtn');if(!b)return;
+  var b=document.getElementById('themeBtn');
+  if(!b)return;
+
   b.addEventListener('click',function(){
-    var n=document.documentElement.dataset.theme==='light'?'dark':'light';
-    document.documentElement.dataset.theme=n;
+    var root=document.documentElement;
+    var n=root.dataset.theme==='light'?'dark':'light';
+
+    /* 切换主题时临时关闭所有过渡动画 */
+    root.classList.add('theme-switching');
+    root.dataset.theme=n;
+
     try{localStorage.setItem('theme',n)}catch(e){}
+
+    /* 等主题颜色完成更新后，再恢复正常交互动画 */
+    requestAnimationFrame(function(){
+      requestAnimationFrame(function(){
+        root.classList.remove('theme-switching');
+      });
+    });
   });
-})();`;
+})();
+`;
 
 const BASE_CSS = `
 :root{
@@ -652,6 +667,14 @@ const BASE_CSS = `
   color-scheme:light;
 }
 *{margin:0;padding:0;box-sizing:border-box}
+/* 明暗主题切换期间：禁止整页动画与颜色过渡 */
+html.theme-switching *,
+html.theme-switching *::before,
+html.theme-switching *::after{
+  transition:none!important;
+  animation:none!important;
+  scroll-behavior:auto!important;
+}
 html{-webkit-text-size-adjust:100%}
 body{font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;line-height:1.5;-webkit-font-smoothing:antialiased}
 body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;background:radial-gradient(900px 420px at 50% -120px,var(--accent-soft),transparent 70%)}
