@@ -1662,6 +1662,8 @@ const ADMIN_CSS = `
 .big .ico-fb{font-size:22px}
 .ie-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .ie-actions .hint{flex-basis:100%;margin:0}
+.ie-opt{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);cursor:pointer;user-select:none}
+.ie-opt input{margin:0;accent-color:var(--accent)}
 .ai-row{display:flex;align-items:center;gap:10px;margin-top:8px}
 .ai-row[hidden],#aiBatch[hidden]{display:none}
 .ai-row .hint{margin:0}
@@ -1895,7 +1897,7 @@ function openForm(id){
   $('#fDesc').value=l?l.desc:'';
   $('#fCat').innerHTML=data.categories.map(function(c){return '<option value="'+esc(c.id)+'">'+esc(c.name)+'</option>'}).join('');
   $('#fCat').value=l?l.cat:cur;
-  formIcon=l?l.icon:'';
+  formIcon=l?l.icon:'';lastIconFile=null;iconSeq++;$('#iconRmBg').checked=false;
   updateIconPrev();
   $('#formModal').classList.add('open');
   setTimeout(function(){$(l?'#fTitle':'#fUrl').focus()},30);
@@ -1937,16 +1939,25 @@ $('#insDot').addEventListener('click',insertDot);
 $('#fDesc').addEventListener('keydown',function(e){if(e.altKey&&(e.key==='.'||e.code==='Period')){e.preventDefault();insertDot()}});
 
 /* ---------- 图标上传：浏览器端去白底、裁边、缩放为 128px PNG 再上传 ---------- */
-/* 不透明图片（JPG 等）的白底处理：从四周向内洪水填充近白色像素并抠成透明，边缘做半透明过渡，
-   然后返回内容外接矩形；四角不是近白色（满铺图 / 彩色底）或几乎全是白色时返回 null，保持原样 */
-function stripWhiteBg(cv){
+/* 不透明图片（JPG 等）的背景处理：从四周向内洪水填充与背景色接近的像素并抠成透明，边缘做半透明过渡，
+   然后返回内容外接矩形。默认只处理白底；anyColor 为真时处理任意纯色底（四角颜色需一致）。
+   四角不满足条件或几乎全被抠掉时返回 null，保持原样 */
+function stripWhiteBg(cv,anyColor){
   var W=cv.width,H=cv.height,cx=cv.getContext('2d',{willReadFrequently:true});
   var im=cx.getImageData(0,0,W,H),d=im.data,i,x,y,o;
   var cs=[[0,0],[W-1,0],[0,H-1],[W-1,H-1]],bg=[0,0,0];
   for(i=0;i<4;i++){
     o=(cs[i][1]*W+cs[i][0])*4;
-    if(d[o+3]<250||Math.min(d[o],d[o+1],d[o+2])<235)return null;
+    if(d[o+3]<250)return null;
+    if(!anyColor&&Math.min(d[o],d[o+1],d[o+2])<235)return null;
     bg[0]+=d[o]/4;bg[1]+=d[o+1]/4;bg[2]+=d[o+2]/4;
+  }
+  if(anyColor){
+    /* 任意底色：四角颜色必须基本一致，否则不是纯色底，不处理 */
+    for(i=0;i<4;i++){
+      o=(cs[i][1]*W+cs[i][0])*4;
+      if(Math.max(Math.abs(d[o]-bg[0]),Math.abs(d[o+1]-bg[1]),Math.abs(d[o+2]-bg[2]))>40)return null;
+    }
   }
   var TOL=36,SOFT=160;
   function dist(p){var q=p*4;return Math.max(Math.abs(d[q]-bg[0]),Math.abs(d[q+1]-bg[1]),Math.abs(d[q+2]-bg[2]))}
@@ -1981,7 +1992,7 @@ function stripWhiteBg(cv){
   cx.putImageData(im,0,0);
   return {x:minX,y:minY,w:maxX-minX+1,h:maxY-minY+1};
 }
-function toPng(file,size){
+function toPng(file,size,anyColor){
   return new Promise(function(resolve,reject){
     var url=URL.createObjectURL(file),img=new Image();
     img.onload=function(){
@@ -1993,7 +2004,7 @@ function toPng(file,size){
         wx.imageSmoothingQuality='high';
         wx.drawImage(img,0,0,ww,wh);
         var bb=null;
-        try{bb=stripWhiteBg(wc)}catch(e){bb=null}
+        try{bb=stripWhiteBg(wc,anyColor)}catch(e){bb=null}
         var sx=0,sy=0,sw=ww,sh=wh;
         if(bb){sx=bb.x;sy=bb.y;sw=bb.w;sh=bb.h}
         var c=document.createElement('canvas');c.width=c.height=size;
@@ -2008,17 +2019,21 @@ function toPng(file,size){
     img.src=url;
   });
 }
+var lastIconFile=null,iconSeq=0;
 function handleFile(file){
   if(!file||String(file.type).indexOf('image/')!==0){toast('请选择图片文件','error');return}
   if(file.size>8*1024*1024){toast('图片不能超过 8MB','error');return}
+  lastIconFile=file;
+  var my=++iconSeq;
   $('#iconHint').textContent='处理中…';
-  toPng(file,128).then(function(blob){return api('POST','/api/icon',null,{body:blob,type:'image/png'})})
-    .then(function(r){formIcon=r.id;updateIconPrev()})
-    .catch(function(e){toast(e.message,'error');updateIconPrev()});
+  toPng(file,128,$('#iconRmBg').checked).then(function(blob){return api('POST','/api/icon',null,{body:blob,type:'image/png'})})
+    .then(function(r){if(my!==iconSeq)return;formIcon=r.id;updateIconPrev()})
+    .catch(function(e){if(my!==iconSeq)return;toast(e.message,'error');updateIconPrev()});
 }
 $('#iconUpload').addEventListener('click',function(){$('#iconFile').click()});
 $('#iconFile').addEventListener('change',function(){handleFile(this.files[0]);this.value=''});
-$('#iconAuto').addEventListener('click',function(){formIcon='';updateIconPrev()});
+$('#iconAuto').addEventListener('click',function(){iconSeq++;lastIconFile=null;formIcon='';updateIconPrev()});
+$('#iconRmBg').addEventListener('change',function(){if(lastIconFile)handleFile(lastIconFile)});
 var box=$('#iconBox');
 box.addEventListener('dragover',function(e){e.preventDefault();box.classList.add('drag')});
 box.addEventListener('dragleave',function(){box.classList.remove('drag')});
@@ -2263,6 +2278,7 @@ ${ADMIN_CSS}
           <div class="ie-actions">
             <button class="btn btn-sm" id="iconUpload" type="button">上传图标</button>
             <button class="btn btn-sm" id="iconAuto" type="button">使用网站图标</button>
+            <label class="ie-opt" title="默认只去除白色背景；勾选后，只要图片四角是同一种颜色（黑色、彩色都行），就把这种背景色抠成透明"><input type="checkbox" id="iconRmBg">去除背景色</label>
             <div class="hint" id="iconHint"></div>
           </div>
           <input type="file" id="iconFile" accept="image/*" hidden>
