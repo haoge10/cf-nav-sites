@@ -1662,8 +1662,14 @@ const ADMIN_CSS = `
 .big .ico-fb{font-size:22px}
 .ie-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .ie-actions .hint{flex-basis:100%;margin:0}
-.ie-opt{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);cursor:pointer;user-select:none}
-.ie-opt input{margin:0;accent-color:var(--accent)}
+.f label.ie-chk{position:relative;display:inline-flex;align-items:center;gap:8px;margin:0;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;user-select:none}
+.ie-chk input{position:absolute;opacity:0;width:0;height:0;pointer-events:none}
+.ie-chk .ck{width:14px;height:14px;flex:none;border-radius:4px;border:1.5px solid var(--border-strong);display:inline-flex;align-items:center;justify-content:center;transition:.15s}
+.ie-chk .ck::after{content:'';width:8px;height:4px;margin-top:-2px;border-left:2px solid var(--accent-fg);border-bottom:2px solid var(--accent-fg);transform:rotate(-45deg) scale(0);transition:.12s}
+.ie-chk input:checked+.ck{background:var(--accent);border-color:var(--accent)}
+.ie-chk input:checked+.ck::after{transform:rotate(-45deg) scale(1)}
+.f label.ie-chk:has(input:checked){color:var(--text);border-color:var(--accent);background:var(--accent-soft)}
+.ie-chk input:focus-visible+.ck{outline:2px solid var(--accent);outline-offset:2px}
 .ai-row{display:flex;align-items:center;gap:10px;margin-top:8px}
 .ai-row[hidden],#aiBatch[hidden]{display:none}
 .ai-row .hint{margin:0}
@@ -2278,7 +2284,7 @@ ${ADMIN_CSS}
           <div class="ie-actions">
             <button class="btn btn-sm" id="iconUpload" type="button">上传图标</button>
             <button class="btn btn-sm" id="iconAuto" type="button">使用网站图标</button>
-            <label class="ie-opt" title="默认只去除白色背景；勾选后，只要图片四角是同一种颜色（黑色、彩色都行），就把这种背景色抠成透明"><input type="checkbox" id="iconRmBg">去除背景色</label>
+            <label class="btn btn-sm ie-chk" title="默认只去除白色背景；勾选后，只要图片四角是同一种颜色（黑色、彩色都行），就把这种背景色抠成透明"><input type="checkbox" id="iconRmBg"><i class="ck"></i>去除背景色</label>
             <div class="hint" id="iconHint"></div>
           </div>
           <input type="file" id="iconFile" accept="image/*" hidden>
