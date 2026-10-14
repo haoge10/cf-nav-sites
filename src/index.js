@@ -1159,11 +1159,9 @@ html[data-theme=light].focus .stage::before{
 }
 
 
-/* 聚焦模式：前 9 个卡片的数字快捷键角标、搜索首项高亮、底部提示 */
+/* 聚焦模式：搜索首项高亮、底部提示 */
 .stage .fcard.first{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
-.fnum{position:absolute;top:6px;left:7px;min-width:16px;height:16px;padding:0 4px;border-radius:5px;font-size:10px;line-height:16px;font-weight:600;text-align:center;color:var(--faint);background:var(--surface2);pointer-events:none}
 .fhint{position:absolute;left:0;right:0;bottom:8px;text-align:center;font-size:12px;color:var(--faint);pointer-events:none}
-@media(hover:none){.fnum{display:none}}
 
 /* 触屏设备不使用悬停浮起效果 */
 @media(hover:none){
@@ -1403,7 +1401,7 @@ function rankedLinks(){
     .sort(function(a,b){return (clicks[b.l.id]||0)-(clicks[a.l.id]||0)||a.i-b.i})
     .map(function(x){return x.l});
 }
-var FAV_KEY='nav:slots',FAV_MAX=24;
+var FAV_MAX=24;
 function refresh(){if(focusOn())buildFocus();else render()}
 /* 搜索：在全部链接里找（不限于常用的那几个），按点击分数排序 */
 function matchLinks(){
@@ -1422,30 +1420,9 @@ function gridFor(maxCells){
   var s=Math.max(56,Math.floor(Math.min((W-(cols-1)*gap)/cols,(H-(rows-1)*gap)/rows,150)));
   return {cols:cols,rows:rows,gap:gap,s:s,ox:(sw-(cols*s+(cols-1)*gap))/2,oy:(sh-(rows*s+(rows-1)*gap))/2};
 }
-/* 常用站的位置：记住每个站所在的格子；只有被挤出前 N 名的站才会让出位置，新上榜的站补进空位，其余不动 */
-function favSlots(T,ranked){
-  var saved=[];
-  try{saved=JSON.parse(localStorage.getItem(FAV_KEY)||'[]')}catch(e){}
-  if(!Array.isArray(saved))saved=[];
-  var want={},used={},slots=[],i;
-  for(i=0;i<T;i++)want[ranked[i].id]=1;
-  for(i=0;i<T;i++){
-    var id=saved[i];
-    if(id&&want[id]&&!used[id]){slots.push(id);used[id]=1}else slots.push(null);
-  }
-  for(i=0;i<T;i++){
-    var r=ranked[i];if(used[r.id])continue;
-    var k=slots.indexOf(null);if(k<0)break;
-    slots[k]=r.id;used[r.id]=1;
-  }
-  /* 窗口变小时多出来的记录先留着，窗口变大还能恢复 */
-  var tail=saved.slice(T).filter(function(id){return id&&!used[id]});
-  try{localStorage.setItem(FAV_KEY,JSON.stringify(slots.concat(tail).slice(0,FAV_MAX)))}catch(e){}
-  return slots;
-}
-function fcardHtml(l,x,y,s,num,first){
-  return '<a class="fcard'+(first?' first':'')+'" data-id="'+esc(l.id)+'"'+(num?' data-n="'+num+'"':'')+' href="'+esc(l.url)+'" target="_blank" rel="noopener noreferrer" title="'+esc(l.title)+'" style="width:'+s+'px;height:'+s+'px;left:'+x+'px;top:'+y+'px">'+
-    (num?'<span class="fnum">'+num+'</span>':'')+U.icon(l)+'<span class="fn">'+esc(l.title)+'</span></a>';
+function fcardHtml(l,x,y,s,first){
+  return '<a class="fcard'+(first?' first':'')+'" data-id="'+esc(l.id)+'" href="'+esc(l.url)+'" target="_blank" rel="noopener noreferrer" title="'+esc(l.title)+'" style="width:'+s+'px;height:'+s+'px;left:'+x+'px;top:'+y+'px">'+
+    U.icon(l)+'<span class="fn">'+esc(l.title)+'</span></a>';
 }
 function buildFocus(first){
   var list=rankedLinks();
@@ -1461,24 +1438,15 @@ function buildFocus(first){
     res.slice(0,cap).forEach(function(l,k){shown.push({l:l,cell:k,first:k===0})});
     if(res.length>cap)hint='还有 '+(res.length-cap)+' 个结果未显示，继续输入可缩小范围';
   }else{
-    /* 常用站：格子按到中心的距离排序（距离相同时从正上方起顺时针），位置由 favSlots 固定 */
-    var cx=(cols-1)/2,cy=(G.rows-1)/2,spiral=[];
-    for(i=0;i<cap;i++){
-      var dx=i%cols-cx,dy=Math.floor(i/cols)-cy;
-      spiral.push({i:i,d:Math.round(Math.sqrt(dx*dx+dy*dy)*1e6),a:(Math.atan2(dx,-dy)+2*Math.PI)%(2*Math.PI)});
-    }
-    spiral.sort(function(a,b){return a.d-b.d||a.a-b.a});
-    var pr=list.filter(function(l){return isPinned(l.id)}).concat(list.filter(function(l){return !isPinned(l.id)})); /* 锁定的链接优先占名额 */
-    var T=Math.min(cap,list.length),slots=favSlots(T,pr);
-    slots.forEach(function(id,k){if(id&&byId[id])shown.push({l:byId[id],cell:spiral[k].i})});
-    /* 前 9 个（按阅读顺序：从上到下、从左到右）加数字键 1-9 */
-    shown.slice().sort(function(a,b){return a.cell-b.cell}).slice(0,9).forEach(function(o,k){o.num=k+1});
+    /* 常用站：锁定的永远在最前，其余按分数；每次进入都重新排，从左到右、从上到下 */
+    var pr=list.filter(function(l){return isPinned(l.id)}).concat(list.filter(function(l){return !isPinned(l.id)}));
+    pr.slice(0,cap).forEach(function(l,k){shown.push({l:l,cell:k})});
   }
   var h='',meta=[];
   shown.forEach(function(o){
     var x=G.ox+(o.cell%cols)*(s+gap),y=G.oy+Math.floor(o.cell/cols)*(s+gap);
     meta.push({cx:x+s/2,cy:y+s/2});
-    h+=fcardHtml(o.l,x,y,s,o.num,o.first);
+    h+=fcardHtml(o.l,x,y,s,o.first);
   });
   stage.style.setProperty('--ico',Math.round(s*.38)+'px');
   stage.innerHTML='<div class="track"><div class="fpage" style="top:0">'+h+'</div></div>'+(hint?'<div class="fhint">'+esc(hint)+'</div>':'');
@@ -1558,12 +1526,6 @@ document.addEventListener('keydown',function(e){
   if(tag==='INPUT'||tag==='TEXTAREA')return;
   if(e.ctrlKey||e.metaKey||e.altKey)return;
   var k=e.key;
-  /* 数字键 1-9 直接打开对应卡片（搜索中不生效，数字当作搜索词） */
-  if(!q&&k.length===1&&k>='1'&&k<='9'){
-    var an=stage.querySelector('.fcard[data-n="'+k+'"]');
-    if(an){e.preventDefault();bump(an.getAttribute('data-id'));window.open(an.getAttribute('href'),'_blank','noopener')}
-    return;
-  }
   /* 直接打字：自动进入搜索框 */
   if(k.length===1&&k!==' '){input.focus();return}
   if(k==='ArrowDown'||k==='ArrowRight'||k==='PageDown'){e.preventDefault();goTo(fIndex+1)}
