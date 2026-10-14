@@ -1936,17 +1936,71 @@ $('#insDot').addEventListener('mousedown',function(e){e.preventDefault()});
 $('#insDot').addEventListener('click',insertDot);
 $('#fDesc').addEventListener('keydown',function(e){if(e.altKey&&(e.key==='.'||e.code==='Period')){e.preventDefault();insertDot()}});
 
-/* ---------- 图标上传：浏览器端缩放为 128px PNG 再上传 ---------- */
+/* ---------- 图标上传：浏览器端去白底、裁边、缩放为 128px PNG 再上传 ---------- */
+/* 不透明图片（JPG 等）的白底处理：从四周向内洪水填充近白色像素并抠成透明，边缘做半透明过渡，
+   然后返回内容外接矩形；四角不是近白色（满铺图 / 彩色底）或几乎全是白色时返回 null，保持原样 */
+function stripWhiteBg(cv){
+  var W=cv.width,H=cv.height,cx=cv.getContext('2d',{willReadFrequently:true});
+  var im=cx.getImageData(0,0,W,H),d=im.data,i,x,y,o;
+  var cs=[[0,0],[W-1,0],[0,H-1],[W-1,H-1]],bg=[0,0,0];
+  for(i=0;i<4;i++){
+    o=(cs[i][1]*W+cs[i][0])*4;
+    if(d[o+3]<250||Math.min(d[o],d[o+1],d[o+2])<235)return null;
+    bg[0]+=d[o]/4;bg[1]+=d[o+1]/4;bg[2]+=d[o+2]/4;
+  }
+  var TOL=36,SOFT=160;
+  function dist(p){var q=p*4;return Math.max(Math.abs(d[q]-bg[0]),Math.abs(d[q+1]-bg[1]),Math.abs(d[q+2]-bg[2]))}
+  var N=W*H,seen=new Uint8Array(N),stack=new Int32Array(N),sp=0,removed=0;
+  function seed(p){if(!seen[p]&&dist(p)<=TOL){seen[p]=1;stack[sp++]=p}}
+  for(x=0;x<W;x++){seed(x);seed((H-1)*W+x)}
+  for(y=0;y<H;y++){seed(y*W);seed(y*W+W-1)}
+  while(sp>0){
+    var p=stack[--sp];removed++;
+    x=p%W;y=(p-x)/W;
+    if(x>0)seed(p-1);
+    if(x<W-1)seed(p+1);
+    if(y>0)seed(p-W);
+    if(y<H-1)seed(p+W);
+  }
+  if(removed===0||removed>N*0.985)return null;
+  var minX=W,minY=H,maxX=-1,maxY=-1;
+  for(y=0;y<H;y++)for(x=0;x<W;x++){
+    var k=y*W+x,q=k*4;
+    if(seen[k]){d[q]=d[q+1]=d[q+2]=d[q+3]=0;continue}
+    if((x>0&&seen[k-1])||(x<W-1&&seen[k+1])||(y>0&&seen[k-W])||(y<H-1&&seen[k+W])){
+      var dd=dist(k);
+      if(dd<SOFT){
+        var a=Math.max(dd/SOFT,.05),c;
+        for(c=0;c<3;c++){var v=(d[q+c]-bg[c]*(1-a))/a;d[q+c]=v<0?0:v>255?255:Math.round(v)}
+        d[q+3]=Math.round(a*255);
+      }
+    }
+    if(d[q+3]>24){if(x<minX)minX=x;if(x>maxX)maxX=x;if(y<minY)minY=y;if(y>maxY)maxY=y}
+  }
+  if(maxX<0)return null;
+  cx.putImageData(im,0,0);
+  return {x:minX,y:minY,w:maxX-minX+1,h:maxY-minY+1};
+}
 function toPng(file,size){
   return new Promise(function(resolve,reject){
     var url=URL.createObjectURL(file),img=new Image();
     img.onload=function(){
       try{
+        var w=img.naturalWidth||img.width||256,h=img.naturalHeight||img.height||256;
+        var k=Math.min(1,640/Math.max(w,h)),ww=Math.max(1,Math.round(w*k)),wh=Math.max(1,Math.round(h*k));
+        var wc=document.createElement('canvas');wc.width=ww;wc.height=wh;
+        var wx=wc.getContext('2d',{willReadFrequently:true});
+        wx.imageSmoothingQuality='high';
+        wx.drawImage(img,0,0,ww,wh);
+        var bb=null;
+        try{bb=stripWhiteBg(wc)}catch(e){bb=null}
+        var sx=0,sy=0,sw=ww,sh=wh;
+        if(bb){sx=bb.x;sy=bb.y;sw=bb.w;sh=bb.h}
         var c=document.createElement('canvas');c.width=c.height=size;
         var ctx=c.getContext('2d');
-        var w=img.naturalWidth||img.width||size,h=img.naturalHeight||img.height||size;
-        var s=Math.min(size/w,size/h),dw=w*s,dh=h*s;
-        ctx.drawImage(img,(size-dw)/2,(size-dh)/2,dw,dh);
+        ctx.imageSmoothingQuality='high';
+        var s=Math.min(size/sw,size/sh),dw=sw*s,dh=sh*s;
+        ctx.drawImage(wc,sx,sy,sw,sh,(size-dw)/2,(size-dh)/2,dw,dh);
         c.toBlob(function(b){URL.revokeObjectURL(url);b?resolve(b):reject(new Error('图片转换失败'))},'image/png');
       }catch(e){URL.revokeObjectURL(url);reject(e)}
     };
