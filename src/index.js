@@ -1199,7 +1199,7 @@ var D=window.__DATA__,cats=D.categories,links=D.links;
 var $=function(s){return document.querySelector(s)};
 var side=$('#side'),main=$('#main'),input=$('#q'),stage=$('#stage'),fbtn=$('#focusBtn');
 var q='',active=null,lock=0;
-var TOP_N=8,clicks=window.__CLICKS__||{},byId={};
+var TOP_N=12,clicks=window.__CLICKS__||{},byId={};
 var AUTHED=window.__AUTHED__===true,pins=(window.__PINS__||[]).slice();
 links.forEach(function(l){byId[l.id]=l});
 function isPinned(id){return pins.indexOf(id)!==-1}
