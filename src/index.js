@@ -11,11 +11,12 @@
 //   - 图标：可上传（浏览器端压缩为 128px PNG），未上传时自动获取网站图标，
 //     再失败则显示首字母头像
 //   - 管理后台按分类管理：分类增删改与拖拽排序、链接拖拽排序、拖到分类即可移动
+//   - 「常用网站」：锁定的卡片按锁定顺序固定排在最前，可拖动调整顺序（登录后）；其余按近期点击排名
 // ============================================================
 
 const DATA_KEY = 'nav:data';
 const CLICKS_KEY = 'nav:clicks';
-const PINS_KEY = 'nav:pins'; // 「常用网站」中被锁定的链接 id 列表
+const PINS_KEY = 'nav:pins'; // 「常用网站」中被锁定的链接 id 列表（数组顺序即显示顺序）
 const HALF_LIFE_DAYS = 30; // 点击权重每 30 天减半，常用榜跟随近期使用习惯
 const ICON_PREFIX = 'icon:';
 const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -216,7 +217,7 @@ async function getClickRecords(env, data) {
     } catch (e) { return {}; }
 }
 
-// 锁定列表：只保留仍存在的链接
+// 锁定列表：只保留仍存在的链接；数组顺序就是显示顺序
 async function getPins(env, data) {
     try {
         const raw = await env.NAV_KV.get(PINS_KEY, 'json');
@@ -557,6 +558,26 @@ export default {
                 }
             }
 
+            // 拖动调整锁定卡片的顺序：body 为 { order: [链接id, ...] }
+            // 只接受当前已锁定的 id；请求里没提到的锁定项保持原有相对顺序，追加在末尾（防止并发操作丢失锁定）
+            if (path === '/api/pin-order' && request.method === 'POST') {
+                try {
+                    const b = await request.json();
+                    const data = await getData(env);
+                    const cur = await getPins(env, data);
+                    const curSet = new Set(cur);
+                    const order = Array.isArray(b?.order)
+                        ? b.order.filter(x => typeof x === 'string' && curSet.has(x))
+                        : [];
+                    const pins = [...new Set(order)];
+                    for (const id of cur) if (!pins.includes(id)) pins.push(id);
+                    await env.NAV_KV.put(PINS_KEY, JSON.stringify(pins));
+                    return json({ success: true, pins });
+                } catch (e) {
+                    return json({ error: e.message || '操作失败' }, 400);
+                }
+            }
+
             if (path === '/api/icon' && request.method === 'POST') {
                 try {
                     const buf = await request.arrayBuffer();
@@ -769,7 +790,8 @@ window.NavUI=(function(){
     else{var h=hostOf(l.url);src=h?'/favicon/'+encodeURIComponent(h)+'?s=128':''}
     if(!src)return '<span class="ico">'+fallback(l.title)+'</span>';
     var c=normCache[src];
-    inner='<img class="ico-img" alt="" loading="lazy" data-t="'+t+'"'+(c?' data-n="1"':'')+' src="'+(c&&c.u?c.u:src)+'">';
+    /* draggable=false：从图标上开始拖动时，拖的是外层卡片 / 行，而不是这张图片 */
+    inner='<img class="ico-img" alt="" draggable="false" loading="lazy" data-t="'+t+'"'+(c?' data-n="1"':'')+' src="'+(c&&c.u?c.u:src)+'">';
     return '<span class="ico"'+(c?' data-k="'+c.k+'" data-tone="'+c.t+'"':'')+'>'+inner+'</span>';
   }
   document.addEventListener('error',function(e){
@@ -932,6 +954,12 @@ const HOME_CSS = `
 .pin.on{opacity:1;color:var(--accent)}
 .pin.on svg{fill:currentColor}
 @media(hover:none){.pin{opacity:.7}.pin.on{opacity:1}}
+
+/* 锁定卡片可拖动排序（登录后） */
+.card[data-pinned],.fcard[data-pinned]{cursor:grab}
+.card.dragging,.fcard.dragging{opacity:.4}
+.card.drag-over,.fcard.drag-over{border-color:var(--accent)!important;box-shadow:-3px 0 0 var(--accent)!important}
+
 .txt{min-width:0;display:flex;flex-direction:column}
 .t{font-weight:600;font-size:14px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .d{font-size:12px;line-height:1.4;margin-top:4px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -1203,10 +1231,11 @@ var TOP_N=12,clicks=window.__CLICKS__||{},byId={};
 var AUTHED=window.__AUTHED__===true,pins=(window.__PINS__||[]).slice();
 links.forEach(function(l){byId[l.id]=l});
 function isPinned(id){return pins.indexOf(id)!==-1}
-/* 锁定的链接始终在榜（占用名额，排在最前，按分数排序），其余名额按分数补满；锁定不影响点击计数 */
+/* 锁定的链接始终在榜，按 pins 数组的顺序固定排在最前（先锁的靠前，可拖动调整，不随点击分数变动）；
+   其余名额（TOP_N 减去锁定数）按分数补满。锁定不影响点击计数 */
+function pinnedLinks(){return pins.map(function(id){return byId[id]}).filter(Boolean)}
 function topLinks(){
-  var pinned=links.filter(function(l){return isPinned(l.id)})
-    .sort(function(a,b){return (clicks[b.id]||0)-(clicks[a.id]||0)});
+  var pinned=pinnedLinks();
   var rest=links.filter(function(l){return !isPinned(l.id)&&clicks[l.id]>0})
     .sort(function(a,b){return clicks[b.id]-clicks[a.id]})
     .slice(0,Math.max(0,TOP_N-pinned.length));
@@ -1223,7 +1252,9 @@ function visible(l,c){
   return norm(l.title+' '+l.desc+' '+hostOf(l.url)+' '+c.name).indexOf(norm(q))!==-1;
 }
 function card(l,mark,withPin){
-  return '<a class="card'+(mark?' first':'')+'" data-id="'+esc(l.id)+'" href="'+esc(l.url)+'" target="_blank" rel="noopener noreferrer"'+(l.desc?' title="'+esc(l.desc)+'"':'')+'>'+
+  /* 只有「常用网站」区里已锁定的卡片可以拖动排序（需登录） */
+  var drag=withPin&&AUTHED&&isPinned(l.id);
+  return '<a class="card'+(mark?' first':'')+'" data-id="'+esc(l.id)+'"'+(drag?' data-pinned="1" draggable="true"':'')+' href="'+esc(l.url)+'" target="_blank" rel="noopener noreferrer"'+(l.desc?' title="'+esc(l.desc)+'"':'')+'>'+
     U.icon(l)+'<span class="txt"><span class="t">'+esc(l.title)+'</span>'+(l.desc?'<span class="d">'+esc(l.desc)+'</span>':'')+'</span>'+(withPin&&AUTHED?pinBtn(l):'')+'</a>';
 }
 function render(){
@@ -1236,8 +1267,9 @@ function render(){
   var top=q?[]:topLinks();
   if(top.length){
     total+=top.length;
+    var topHint='近期常用'+(AUTHED&&pins.length>1?' · 可拖动锁定的卡片调整顺序':'');
     sideH+='<a class="side-item" href="#cat-__top" data-cat="__top"><span class="nm">⭐ 常用网站</span><span class="n">'+top.length+'</span></a>';
-    mainH+='<section class="sec" id="cat-__top" data-cat="__top"><h2>⭐ 常用网站<span class="cnt">近期常用</span></h2><div class="grid">'+
+    mainH+='<section class="sec" id="cat-__top" data-cat="__top"><h2>⭐ 常用网站<span class="cnt">'+topHint+'</span></h2><div class="grid">'+
       top.map(function(l){return card(l,false,true)}).join('')+'</div></section>';
   }
   cats.forEach(function(c){
@@ -1364,6 +1396,57 @@ main.addEventListener('click',function(e){
     .catch(function(err){pins=prev;render();alert(err.message||'操作失败')});
 },true);
 main.addEventListener('auxclick',function(e){if(e.target.closest('.pin')){e.preventDefault();e.stopImmediatePropagation()}},true);
+
+/* ---------- 锁定卡片拖动排序（普通模式的「常用网站」与聚焦模式共用） ----------
+   只在已锁定的卡片之间换位置：把 A 拖到 B 上，A 就插到 B 的位置（往后拖排在 B 后面，往前拖排在 B 前面）。
+   乐观更新界面，保存失败则回滚。 */
+var dragId=null,PIN_SEL='.card[data-pinned],.fcard[data-pinned]';
+function movePin(from,to){
+  var a=pins.indexOf(from),b=pins.indexOf(to);
+  if(a<0||b<0||a===b)return false;
+  pins.splice(a,1);
+  pins.splice(b,0,from);
+  return true;
+}
+function savePinOrder(prev){
+  fetch('/api/pin-order',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({order:pins})})
+    .then(function(r){if(!r.ok)throw new Error(r.status===401?'登录已过期，请重新登录':'保存顺序失败')})
+    .catch(function(err){pins=prev;refresh();alert(err.message||'保存顺序失败')});
+}
+function clearDragMarks(root){
+  root.querySelectorAll('.drag-over,.dragging').forEach(function(x){x.classList.remove('drag-over','dragging')});
+}
+function bindPinDrag(root){
+  root.addEventListener('dragstart',function(e){
+    var c=e.target.closest&&e.target.closest(PIN_SEL);
+    if(!c)return;
+    dragId=c.getAttribute('data-id');
+    c.classList.add('dragging');
+    try{e.dataTransfer.effectAllowed='move';e.dataTransfer.clearData();e.dataTransfer.setData('text/plain',dragId)}catch(x){}
+  });
+  root.addEventListener('dragover',function(e){
+    if(!dragId)return;
+    var c=e.target.closest&&e.target.closest(PIN_SEL);
+    if(!c)return;
+    e.preventDefault();
+    try{e.dataTransfer.dropEffect='move'}catch(x){}
+    root.querySelectorAll('.drag-over').forEach(function(x){if(x!==c)x.classList.remove('drag-over')});
+    if(c.getAttribute('data-id')!==dragId)c.classList.add('drag-over');
+  });
+  root.addEventListener('drop',function(e){
+    if(!dragId)return;
+    var c=e.target.closest&&e.target.closest(PIN_SEL);
+    if(!c)return;
+    e.preventDefault();
+    var from=dragId,to=c.getAttribute('data-id'),prev=pins.slice();
+    dragId=null;clearDragMarks(root);
+    if(movePin(from,to)){refresh();savePinOrder(prev)}
+  });
+  root.addEventListener('dragend',function(){dragId=null;clearDragMarks(root)});
+}
+bindPinDrag(main);
+bindPinDrag(stage);
+
 function track(e){
   if(e.button===2)return;
   if(e.target.closest('.pin'))return;
@@ -1421,7 +1504,9 @@ function gridFor(maxCells){
   return {cols:cols,rows:rows,gap:gap,s:s,ox:(sw-(cols*s+(cols-1)*gap))/2,oy:(sh-(rows*s+(rows-1)*gap))/2};
 }
 function fcardHtml(l,x,y,s,first){
-  return '<a class="fcard'+(first?' first':'')+'" data-id="'+esc(l.id)+'" href="'+esc(l.url)+'" target="_blank" rel="noopener noreferrer" title="'+esc(l.title)+'" style="width:'+s+'px;height:'+s+'px;left:'+x+'px;top:'+y+'px">'+
+  /* 非搜索状态下，已锁定的卡片可拖动排序（需登录） */
+  var drag=AUTHED&&!q&&isPinned(l.id);
+  return '<a class="fcard'+(first?' first':'')+'" data-id="'+esc(l.id)+'"'+(drag?' data-pinned="1" draggable="true"':'')+' href="'+esc(l.url)+'" target="_blank" rel="noopener noreferrer" title="'+esc(l.title)+'" style="width:'+s+'px;height:'+s+'px;left:'+x+'px;top:'+y+'px">'+
     U.icon(l)+'<span class="fn">'+esc(l.title)+'</span></a>';
 }
 function buildFocus(first){
@@ -1438,8 +1523,8 @@ function buildFocus(first){
     res.slice(0,cap).forEach(function(l,k){shown.push({l:l,cell:k,first:k===0})});
     if(res.length>cap)hint='还有 '+(res.length-cap)+' 个结果未显示，继续输入可缩小范围';
   }else{
-    /* 常用站：锁定的永远在最前，其余按分数；每次进入都重新排，从左到右、从上到下 */
-    var pr=list.filter(function(l){return isPinned(l.id)}).concat(list.filter(function(l){return !isPinned(l.id)}));
+    /* 常用站：锁定的永远在最前，按 pins 顺序固定（可拖动调整）；其余按分数；每次进入都重新排，从左到右、从上到下 */
+    var pr=pinnedLinks().concat(list.filter(function(l){return !isPinned(l.id)}));
     pr.slice(0,cap).forEach(function(l,k){shown.push({l:l,cell:k})});
   }
   var h='',meta=[];
