@@ -11,7 +11,7 @@
 //   - 图标：可上传（浏览器端压缩为 128px PNG），未上传时自动获取网站图标，
 //     再失败则显示首字母头像
 //   - 管理后台按分类管理：分类增删改与拖拽排序、链接拖拽排序、拖到分类即可移动
-//   - 「常用网站」：锁定的卡片按锁定顺序固定排在最前，可拖动调整顺序（登录后）；其余按近期点击排名
+//   - 「常用网站」：锁定的卡片按锁定顺序固定排在最前，可拖动调整顺序（登录后，拖动时其他卡片实时让位）；其余按近期点击排名
 // ============================================================
 
 const DATA_KEY = 'nav:data';
@@ -955,10 +955,10 @@ const HOME_CSS = `
 .pin.on svg{fill:currentColor}
 @media(hover:none){.pin{opacity:.7}.pin.on{opacity:1}}
 
-/* 锁定卡片可拖动排序（登录后） */
-.card[data-pinned],.fcard[data-pinned]{cursor:grab}
-.card.dragging,.fcard.dragging{opacity:.4}
-.card.drag-over,.fcard.drag-over{border-color:var(--accent)!important;box-shadow:-3px 0 0 var(--accent)!important}
+/* 锁定卡片可拖动排序（登录后）：拖动时其他卡片实时让位 */
+.card[data-pinned],.fcard[data-pinned]{cursor:grab;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.card.pdrag,.fcard.pdrag{z-index:50;opacity:.96;border-color:var(--accent)!important;box-shadow:var(--shadow)!important;will-change:transform}
+body.pdragging{user-select:none;-webkit-user-select:none;cursor:grabbing}
 
 .txt{min-width:0;display:flex;flex-direction:column}
 .t{font-weight:600;font-size:14px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -1254,7 +1254,7 @@ function visible(l,c){
 function card(l,mark,withPin){
   /* 只有「常用网站」区里已锁定的卡片可以拖动排序（需登录） */
   var drag=withPin&&AUTHED&&isPinned(l.id);
-  return '<a class="card'+(mark?' first':'')+'" data-id="'+esc(l.id)+'"'+(drag?' data-pinned="1" draggable="true"':'')+' href="'+esc(l.url)+'" target="_blank" rel="noopener noreferrer"'+(l.desc?' title="'+esc(l.desc)+'"':'')+'>'+
+  return '<a class="card'+(mark?' first':'')+'" data-id="'+esc(l.id)+'"'+(drag?' data-pinned="1"':'')+' href="'+esc(l.url)+'" target="_blank" rel="noopener noreferrer"'+(l.desc?' title="'+esc(l.desc)+'"':'')+'>'+
     U.icon(l)+'<span class="txt"><span class="t">'+esc(l.title)+'</span>'+(l.desc?'<span class="d">'+esc(l.desc)+'</span>':'')+'</span>'+(withPin&&AUTHED?pinBtn(l):'')+'</a>';
 }
 function render(){
@@ -1397,52 +1397,115 @@ main.addEventListener('click',function(e){
 },true);
 main.addEventListener('auxclick',function(e){if(e.target.closest('.pin')){e.preventDefault();e.stopImmediatePropagation()}},true);
 
-/* ---------- 锁定卡片拖动排序（普通模式的「常用网站」与聚焦模式共用） ----------
-   只在已锁定的卡片之间换位置：把 A 拖到 B 上，A 就插到 B 的位置（往后拖排在 B 后面，往前拖排在 B 前面）。
-   乐观更新界面，保存失败则回滚。 */
-var dragId=null,PIN_SEL='.card[data-pinned],.fcard[data-pinned]';
-function movePin(from,to){
-  var a=pins.indexOf(from),b=pins.indexOf(to);
-  if(a<0||b<0||a===b)return false;
-  pins.splice(a,1);
-  pins.splice(b,0,from);
-  return true;
-}
+/* ---------- 锁定卡片拖动排序（实时让位，普通模式「常用网站」与聚焦模式共用） ----------
+   开始拖动时量出所有锁定卡片的「格子」位置；拖动中被拖的卡片跟随指针，
+   指针进入别的格子时，卡片顺序随之改变，其余卡片用动画滑到各自的新格子。
+   松手后才更新 pins 并保存，失败则回滚。
+   鼠标：按住拖动；触屏：长按约 0.35 秒后拖动（不影响正常滑动页面）。 */
+var PIN_SEL='.card[data-pinned],.fcard[data-pinned]',noClick=0,sorting=false;
 function savePinOrder(prev){
   fetch('/api/pin-order',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({order:pins})})
     .then(function(r){if(!r.ok)throw new Error(r.status===401?'登录已过期，请重新登录':'保存顺序失败')})
     .catch(function(err){pins=prev;refresh();alert(err.message||'保存顺序失败')});
 }
-function clearDragMarks(root){
-  root.querySelectorAll('.drag-over,.dragging').forEach(function(x){x.classList.remove('drag-over','dragging')});
-}
 function bindPinDrag(root){
-  root.addEventListener('dragstart',function(e){
-    var c=e.target.closest&&e.target.closest(PIN_SEL);
-    if(!c)return;
-    dragId=c.getAttribute('data-id');
-    c.classList.add('dragging');
-    try{e.dataTransfer.effectAllowed='move';e.dataTransfer.clearData();e.dataTransfer.setData('text/plain',dragId)}catch(x){}
+  var press=false;
+  root.addEventListener('dragstart',function(e){if(e.target.closest&&e.target.closest(PIN_SEL))e.preventDefault()});
+  root.addEventListener('contextmenu',function(e){if((sorting||press)&&e.target.closest&&e.target.closest(PIN_SEL))e.preventDefault()});
+  /* 拖完松手时浏览器可能补发点击（会误打开链接 / 误计点击），拦掉 */
+  root.addEventListener('click',function(e){if(Date.now()<noClick){e.stopImmediatePropagation();e.preventDefault()}},true);
+  root.addEventListener('pointerdown',function(e){
+    if(sorting)return;
+    if(e.pointerType==='mouse'&&e.button!==0)return;
+    var item=e.target.closest&&e.target.closest(PIN_SEL);
+    if(!item||e.target.closest('.pin'))return;
+    var cards=Array.prototype.slice.call(root.querySelectorAll(PIN_SEL));
+    if(cards.length<2)return;
+    var touch=e.pointerType==='touch',pid=e.pointerId,sx=e.clientX,sy=e.clientY,px=sx,py=sy;
+    var startX=sx+window.pageXOffset,startY=sy+window.pageYOffset;
+    var started=false,raf=0,timer=0,focus=focusOn();
+    var slots,arr,orig,cur,from,w,h;
+    if(touch){press=true;timer=setTimeout(begin,350)}
+
+    function begin(){
+      started=true;sorting=true;
+      /* 先清掉悬停浮起等位移，再量格子位置（用页面坐标，滚动也不影响） */
+      cards.forEach(function(c){c.style.transition='none';c.style.transform='none'});
+      slots=cards.map(function(c){var r=c.getBoundingClientRect();return {x:r.left+window.pageXOffset,y:r.top+window.pageYOffset}});
+      var r0=item.getBoundingClientRect();w=r0.width;h=r0.height;
+      arr=cards.slice();orig=cards.slice();cur=from=cards.indexOf(item);
+      cards.forEach(function(c){
+        if(c===item){c.classList.add('pdrag');c.style.pointerEvents='none'}
+        else c.style.transition='transform .18s cubic-bezier(.2,.7,.2,1)';
+      });
+      document.body.classList.add('pdragging');
+      try{window.getSelection().removeAllRanges()}catch(x){}
+      frame();
+    }
+    function place(){
+      item.style.transform='translate('+(px+window.pageXOffset-startX)+'px,'+(py+window.pageYOffset-startY)+'px)';
+    }
+    function reorder(j){
+      arr.splice(cur,1);arr.splice(j,0,item);cur=j;
+      arr.forEach(function(c,k){
+        if(c===item)return;
+        var o=orig.indexOf(c),dx=slots[k].x-slots[o].x,dy=slots[k].y-slots[o].y;
+        c.style.transform=(dx||dy)?'translate('+dx+'px,'+dy+'px)':'none';
+      });
+    }
+    function frame(){
+      raf=requestAnimationFrame(frame);
+      if(!focus){if(py<70)window.scrollBy(0,-12);else if(py>window.innerHeight-70)window.scrollBy(0,12)}
+      var gx=px+window.pageXOffset,gy=py+window.pageYOffset;
+      for(var j=0;j<slots.length;j++){
+        if(j===cur)continue;
+        var s=slots[j];
+        /* 指针进入某个格子的中间区域才换位，避免在格子边缘来回抖动 */
+        if(gx>s.x+w*.25&&gx<s.x+w*.75&&gy>s.y+h*.25&&gy<s.y+h*.75){reorder(j);break}
+      }
+      place();
+    }
+    function move(ev){
+      if(ev.pointerId!==pid)return;
+      px=ev.clientX;py=ev.clientY;
+      if(started)return;
+      var d=Math.abs(px-sx)+Math.abs(py-sy);
+      if(touch){if(d>10)finish(true)}   /* 长按前手指动了 = 想滑动页面，放弃拖动 */
+      else if(d>=5)begin();             /* 移动不到 5px 当作点击 */
+    }
+    function up(ev){if(ev.pointerId===pid)finish(ev.type==='pointercancel')}
+    function noScroll(ev){if(started&&ev.cancelable)ev.preventDefault()}
+    function finish(cancelled){
+      clearTimeout(timer);press=false;
+      window.removeEventListener('pointermove',move);
+      window.removeEventListener('pointerup',up);
+      window.removeEventListener('pointercancel',up);
+      window.removeEventListener('touchmove',noScroll);
+      if(!started)return;
+      cancelAnimationFrame(raf);
+      noClick=Date.now()+400;
+      var changed=!cancelled&&arr.some(function(c,k){return c!==orig[k]});
+      var tx=cancelled?0:slots[cur].x-slots[from].x,ty=cancelled?0:slots[cur].y-slots[from].y;
+      if(cancelled)cards.forEach(function(c){if(c!==item)c.style.transform='none'});
+      /* 松手后滑进落点，再重绘 */
+      item.style.transition='transform .16s ease';
+      item.style.transform=(tx||ty)?'translate('+tx+'px,'+ty+'px)':'none';
+      setTimeout(function(){
+        sorting=false;document.body.classList.remove('pdragging');
+        if(changed){
+          var prev=pins.slice(),ids=arr.map(function(c){return c.getAttribute('data-id')});
+          pins=ids.concat(pins.filter(function(x){return ids.indexOf(x)===-1}));
+          refresh();savePinOrder(prev);
+        }else{
+          cards.forEach(function(c){c.style.transform='';c.style.transition='';c.style.pointerEvents='';c.classList.remove('pdrag')});
+        }
+      },170);
+    }
+    window.addEventListener('pointermove',move);
+    window.addEventListener('pointerup',up);
+    window.addEventListener('pointercancel',up);
+    if(touch)window.addEventListener('touchmove',noScroll,{passive:false});
   });
-  root.addEventListener('dragover',function(e){
-    if(!dragId)return;
-    var c=e.target.closest&&e.target.closest(PIN_SEL);
-    if(!c)return;
-    e.preventDefault();
-    try{e.dataTransfer.dropEffect='move'}catch(x){}
-    root.querySelectorAll('.drag-over').forEach(function(x){if(x!==c)x.classList.remove('drag-over')});
-    if(c.getAttribute('data-id')!==dragId)c.classList.add('drag-over');
-  });
-  root.addEventListener('drop',function(e){
-    if(!dragId)return;
-    var c=e.target.closest&&e.target.closest(PIN_SEL);
-    if(!c)return;
-    e.preventDefault();
-    var from=dragId,to=c.getAttribute('data-id'),prev=pins.slice();
-    dragId=null;clearDragMarks(root);
-    if(movePin(from,to)){refresh();savePinOrder(prev)}
-  });
-  root.addEventListener('dragend',function(){dragId=null;clearDragMarks(root)});
 }
 bindPinDrag(main);
 bindPinDrag(stage);
@@ -1506,7 +1569,7 @@ function gridFor(maxCells){
 function fcardHtml(l,x,y,s,first){
   /* 非搜索状态下，已锁定的卡片可拖动排序（需登录） */
   var drag=AUTHED&&!q&&isPinned(l.id);
-  return '<a class="fcard'+(first?' first':'')+'" data-id="'+esc(l.id)+'"'+(drag?' data-pinned="1" draggable="true"':'')+' href="'+esc(l.url)+'" target="_blank" rel="noopener noreferrer" title="'+esc(l.title)+'" style="width:'+s+'px;height:'+s+'px;left:'+x+'px;top:'+y+'px">'+
+  return '<a class="fcard'+(first?' first':'')+'" data-id="'+esc(l.id)+'"'+(drag?' data-pinned="1"':'')+' href="'+esc(l.url)+'" target="_blank" rel="noopener noreferrer" title="'+esc(l.title)+'" style="width:'+s+'px;height:'+s+'px;left:'+x+'px;top:'+y+'px">'+
     U.icon(l)+'<span class="fn">'+esc(l.title)+'</span></a>';
 }
 function buildFocus(first){
@@ -1714,8 +1777,9 @@ const ADMIN_CSS = `
 .grip.off{opacity:.25;cursor:not-allowed}
 .grip{touch-action:none}
 @media(hover:none){.grip{padding:10px 10px;font-size:18px}}
-.row.tdrag,.crow.tdrag{position:relative;z-index:30;opacity:.92;background:var(--surface2);border-color:var(--accent);box-shadow:var(--shadow)}
-body.tdragging{user-select:none;-webkit-user-select:none}
+@media(hover:hover){.row{cursor:grab}.row button{cursor:pointer}}
+.pdrag{position:relative;z-index:30;opacity:.95;background:var(--surface2)!important;border-color:var(--accent)!important;box-shadow:var(--shadow)}
+body.pdragging{user-select:none;-webkit-user-select:none;cursor:grabbing}
 .mini{width:26px;height:26px;border-radius:7px;border:none;background:none;color:var(--muted);display:inline-flex;align-items:center;justify-content:center}
 .mini:hover{background:var(--surface);color:var(--text)}.mini.danger:hover{color:var(--bad)}
 .list{display:flex;flex-direction:column;gap:8px}
@@ -1779,7 +1843,6 @@ const ADMIN_JS = String.raw`
 var U=window.NavUI,esc=U.esc,hostOf=U.hostOf,norm=U.norm;
 var $=function(s){return document.querySelector(s)};
 var data={categories:[],links:[]},cur=null,q='',editing=null,catEditing=null,formIcon='';
-var dragLink=null,dragCat=null;
 var SVG_EDIT='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
 var SVG_TRASH='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>';
 
@@ -1828,7 +1891,7 @@ function moveLinkToCat(link,catId){
 function render(){renderCats();renderLinks()}
 function renderCats(){
   $('#cats').innerHTML=data.categories.map(function(c){
-    return '<div class="crow'+(c.id===cur&&!q?' active':'')+'" data-id="'+esc(c.id)+'" draggable="true">'+
+    return '<div class="crow'+(c.id===cur&&!q?' active':'')+'" data-id="'+esc(c.id)+'">'+
       '<span class="grip" title="拖动排序">⋮⋮</span><span class="cn">'+esc(c.name)+'</span><span class="cc">'+countOf(c.id)+'</span>'+
       '<span class="cact"><button class="mini" data-act="rename" title="重命名" aria-label="重命名">'+SVG_EDIT+'</button>'+
       (data.categories.length>1?'<button class="mini danger" data-act="delcat" title="删除分类" aria-label="删除分类">'+SVG_TRASH+'</button>':'')+'</span></div>';
@@ -1847,7 +1910,7 @@ function renderLinks(){
   }
   $('#links').innerHTML=list.map(function(l){
     var cc=catOf(l.cat);
-    return '<div class="row" data-id="'+esc(l.id)+'" draggable="'+(searching?'false':'true')+'">'+
+    return '<div class="row" data-id="'+esc(l.id)+'">'+
       '<span class="grip'+(searching?' off':'')+'" title="'+(searching?'搜索时无法排序':'拖动排序，或拖到左侧分类')+'">⋮⋮</span>'+
       U.icon(l)+
       '<div class="r-main"><div class="r-name"><span class="rt">'+esc(l.title)+'</span>'+(searching&&cc?'<span class="chip">'+esc(cc.name)+'</span>':'')+'</div>'+
@@ -1857,136 +1920,127 @@ function renderLinks(){
   }).join('');
 }
 
-/* ---------- 拖拽：链接排序 / 移动分类 / 分类排序 ---------- */
-function clearOver(){document.querySelectorAll('.over').forEach(function(x){x.classList.remove('over')})}
-function endDrag(){
-  dragLink=null;dragCat=null;clearOver();
-  document.querySelectorAll('.dragging').forEach(function(x){x.classList.remove('dragging')});
+/* ---------- 拖动排序 / 移动分类（鼠标与触屏共用，拖动时其他行实时让位） ----------
+   鼠标：按住行的任意位置拖；触屏：按住左侧 ⋮⋮ 手柄拖（其余地方照常滑动页面）。
+   拖动中直接调整 DOM 顺序，其余行用动画滑到新位置；松手后才写入数据并保存。
+   拖链接时，指针移到左侧某个分类上，该分类高亮，松手即移动到那个分类。靠近屏幕上下边缘会自动滚动。 */
+var linksEl=$('#links'),catsEl=$('#cats'),dragBusy=false,noClick=0;
+function flipList(listEl,item,change){
+  var others=Array.prototype.filter.call(listEl.children,function(c){return c!==item});
+  var first=others.map(function(c){return c.getBoundingClientRect()});
+  change();
+  others.forEach(function(c,i){
+    var dy=first[i].top-c.getBoundingClientRect().top;
+    if(!dy)return;
+    c.style.transition='none';
+    c.style.transform='translateY('+dy+'px)';
+    c.offsetWidth;
+    c.style.transition='transform .16s ease';
+    c.style.transform='';
+    setTimeout(function(){c.style.transition=''},200);
+  });
 }
-function reorder(arr,a,b){
-  var ia=arr.indexOf(a),ib=arr.indexOf(b);
-  arr.splice(ia,1);
-  var nb=arr.indexOf(b);
-  arr.splice(ia<ib?nb+1:nb,0,a);
-}
-var linksEl=$('#links'),catsEl=$('#cats');
-linksEl.addEventListener('dragstart',function(e){
-  var r=e.target.closest('.row');if(!r||r.getAttribute('draggable')!=='true')return;
-  dragLink=r.getAttribute('data-id');r.classList.add('dragging');
-  e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',dragLink)}catch(x){}
-});
-linksEl.addEventListener('dragover',function(e){
-  if(!dragLink)return;e.preventDefault();clearOver();
-  var r=e.target.closest('.row');if(r&&r.getAttribute('data-id')!==dragLink)r.classList.add('over');
-});
-linksEl.addEventListener('drop',function(e){
-  if(!dragLink)return;e.preventDefault();
-  var r=e.target.closest('.row');
-  if(r){
-    var a=linkOf(dragLink),b=linkOf(r.getAttribute('data-id'));
-    if(a&&b&&a!==b&&a.cat===b.cat){reorder(data.links,a,b);save()}
-  }
-  endDrag();render();
-});
-linksEl.addEventListener('dragend',function(){endDrag()});
-
-catsEl.addEventListener('dragstart',function(e){
-  var r=e.target.closest('.crow');if(!r)return;
-  dragCat=r.getAttribute('data-id');r.classList.add('dragging');
-  e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',dragCat)}catch(x){}
-});
-catsEl.addEventListener('dragover',function(e){
-  if(!dragCat&&!dragLink)return;e.preventDefault();clearOver();
-  var r=e.target.closest('.crow');if(r&&r.getAttribute('data-id')!==dragCat)r.classList.add('over');
-});
-catsEl.addEventListener('drop',function(e){
-  e.preventDefault();
-  var r=e.target.closest('.crow');
-  if(r){
-    var to=r.getAttribute('data-id');
-    if(dragCat){
-      var a=catOf(dragCat),b=catOf(to);
-      if(a&&b&&a!==b){reorder(data.categories,a,b);save()}
-    }else if(dragLink){
-      var l=linkOf(dragLink);
-      if(l&&l.cat!==to){moveLinkToCat(l,to);toast('已移动到「'+catOf(to).name+'」');save()}
-    }
-  }
-  endDrag();render();
-});
-catsEl.addEventListener('dragend',function(){endDrag()});
-/* ---------- 触屏拖动：按住 ⋮⋮ 手柄拖（鼠标仍用上面的原生拖放） ----------
-   行跟着手指走，下面的行 / 分类高亮；松手后复用上面同样的排序、移动逻辑。靠近屏幕上下边缘会自动滚动。 */
-var noClick=0;
-function touchDrag(e,kind){
-  if(e.pointerType==='mouse')return;
+function pdrag(e,kind){
+  if(dragBusy)return;
+  if(e.pointerType==='mouse'&&e.button!==0)return;
+  var listEl=kind==='link'?linksEl:catsEl,sel=kind==='link'?'.row':'.crow';
+  var item=e.target.closest(sel);
+  if(!item||item.parentNode!==listEl||e.target.closest('[data-act]'))return;
   var grip=e.target.closest('.grip');
-  if(!grip||grip.classList.contains('off'))return;
-  var item=grip.closest(kind==='link'?'.row':'.crow');if(!item)return;
+  if(e.pointerType!=='mouse'&&!grip)return;
+  if(grip&&grip.classList.contains('off'))return;
+  if(kind==='link'&&q)return; /* 搜索结果里不能排序 */
   e.preventDefault();
-  var id=item.getAttribute('data-id'),pid=e.pointerId,wasDrag=item.getAttribute('draggable');
-  var px=e.clientX,py=e.clientY,r0=item.getBoundingClientRect(),ox=px-r0.left,oy=py-r0.top,over=null,raf=0;
-  try{grip.setPointerCapture(pid)}catch(x){}
-  item.setAttribute('draggable','false'); /* 避免和浏览器自带的长按拖放冲突 */
-  item.classList.add('tdrag');document.body.classList.add('tdragging');
+  var pid=e.pointerId,sx=e.clientX,sy=e.clientY,px=sx,py=sy,started=false,raf=0,over=null,ox=0,oy=0,lock=0;
+  var startIds=Array.prototype.map.call(listEl.children,function(c){return c.getAttribute('data-id')});
 
+  function rowAt(els,s2,parent){
+    for(var i=0;i<els.length;i++){
+      var t=els[i].closest(s2);
+      if(t&&t!==item&&t.parentNode===parent)return t;
+    }
+    return null;
+  }
   function place(){
     item.style.transform='';
     var r=item.getBoundingClientRect();
-    item.style.transform='translate('+(px-ox-r.left)+'px,'+(py-oy-r.top)+'px)';
-  }
-  function hit(){
-    var els=document.elementsFromPoint(px,py),i,t;
-    for(i=0;i<els.length;i++){
-      if(item.contains(els[i]))continue;
-      t=els[i].closest(kind==='link'?'.row,.crow':'.crow');
-      if(t&&t!==item)return t;
-    }
-    return null;
+    item.style.transform='translate('+(kind==='cat'?0:px-ox-r.left)+'px,'+(py-oy-r.top)+'px)';
   }
   function frame(){
     raf=requestAnimationFrame(frame);
     if(py<80)window.scrollBy(0,-12);else if(py>window.innerHeight-80)window.scrollBy(0,12);
+    if(performance.now()>=lock){
+      var els=document.elementsFromPoint(px,py);
+      var tc=kind==='link'?rowAt(els,'.crow',catsEl):null;
+      if(tc!==over){if(over)over.classList.remove('over');over=tc;if(over)over.classList.add('over')}
+      var t=tc?null:rowAt(els,sel,listEl);
+      if(t){
+        var r=t.getBoundingClientRect(),mid=r.top+r.height/2;
+        var tAfter=item.compareDocumentPosition(t)&4; /* t 在 item 后面 */
+        if(tAfter&&py>mid){flipList(listEl,item,function(){listEl.insertBefore(item,t.nextSibling)});lock=performance.now()+120}
+        else if(!tAfter&&py<mid){flipList(listEl,item,function(){listEl.insertBefore(item,t)});lock=performance.now()+120}
+      }
+    }
     place();
-    var t=hit();
-    if(t!==over){if(over)over.classList.remove('over');over=t;if(over)over.classList.add('over')}
   }
-  function move(ev){if(ev.pointerId!==pid)return;px=ev.clientX;py=ev.clientY}
+  function begin(){
+    started=true;
+    var r=item.getBoundingClientRect();ox=sx-r.left;oy=sy-r.top;
+    item.classList.add('pdrag');document.body.classList.add('pdragging');
+    item.style.pointerEvents='none';item.style.transition='none';
+    frame();
+  }
+  function move(ev){
+    if(ev.pointerId!==pid)return;
+    px=ev.clientX;py=ev.clientY;
+    if(!started&&Math.abs(px-sx)+Math.abs(py-sy)>=5)begin(); /* 移动不到 5px 当作点击 */
+  }
   function up(ev){
     if(ev.pointerId!==pid)return;
     window.removeEventListener('pointermove',move);
     window.removeEventListener('pointerup',up);
     window.removeEventListener('pointercancel',up);
+    if(!started)return;
     cancelAnimationFrame(raf);
-    item.classList.remove('tdrag');item.style.transform='';
-    if(wasDrag!==null)item.setAttribute('draggable',wasDrag);
-    document.body.classList.remove('tdragging');
-    var t=over;if(t)t.classList.remove('over');
-    noClick=Date.now()+400;
-    if(t&&ev.type==='pointerup'){
-      var tid=t.getAttribute('data-id');
-      if(kind==='cat'){
-        var ca=catOf(id),cb=catOf(tid);
-        if(ca&&cb&&ca!==cb){reorder(data.categories,ca,cb);save()}
-      }else if(t.classList.contains('row')){
-        var a=linkOf(id),b=linkOf(tid);
-        if(a&&b&&a!==b&&a.cat===b.cat){reorder(data.links,a,b);save()}
-      }else{
-        var l=linkOf(id);
-        if(l&&l.cat!==tid){moveLinkToCat(l,tid);toast('已移动到「'+catOf(tid).name+'」');save()}
+    dragBusy=true;noClick=Date.now()+400;
+    var tc=over,changed=false,cancelled=ev.type==='pointercancel';
+    if(tc)tc.classList.remove('over');
+    if(!cancelled){
+      var ids=Array.prototype.map.call(listEl.children,function(c){return c.getAttribute('data-id')});
+      if(kind==='link'&&tc){
+        var l=linkOf(item.getAttribute('data-id')),tid=tc.getAttribute('data-id');
+        if(l&&l.cat!==tid){moveLinkToCat(l,tid);toast('已移动到「'+catOf(tid).name+'」');changed=true}
+      }else if(ids.join()!==startIds.join()){
+        if(kind==='cat'){
+          var cs=ids.map(catOf);
+          if(cs.length===data.categories.length&&cs.every(Boolean)){data.categories=cs;changed=true}
+        }else{
+          var idx=[];data.links.forEach(function(l2,k){if(l2.cat===cur)idx.push(k)});
+          var arr=ids.map(linkOf);
+          if(arr.length===idx.length&&arr.every(Boolean)){idx.forEach(function(k,j){data.links[k]=arr[j]});changed=true}
+        }
       }
     }
-    render();
+    /* 松手后滑进落点，再重绘 */
+    item.style.transition='transform .15s ease';item.style.transform='';
+    setTimeout(function(){
+      item.classList.remove('pdrag');item.style.pointerEvents='';item.style.transition='';
+      document.body.classList.remove('pdragging');
+      dragBusy=false;
+      render();
+      if(changed)save();
+    },160);
   }
   window.addEventListener('pointermove',move);
   window.addEventListener('pointerup',up);
   window.addEventListener('pointercancel',up);
-  frame();
 }
-linksEl.addEventListener('pointerdown',function(e){touchDrag(e,'link')});
-catsEl.addEventListener('pointerdown',function(e){touchDrag(e,'cat')});
-/* 拖完松手时浏览器可能补发一次点击，会误切换分类，拦掉 */
-catsEl.addEventListener('click',function(e){if(Date.now()<noClick){e.stopImmediatePropagation();e.preventDefault()}},true);
+linksEl.addEventListener('pointerdown',function(e){pdrag(e,'link')});
+catsEl.addEventListener('pointerdown',function(e){pdrag(e,'cat')});
+/* 拖完松手时浏览器可能补发一次点击（会误切换分类 / 误点按钮），拦掉 */
+[linksEl,catsEl].forEach(function(el){
+  el.addEventListener('click',function(e){if(Date.now()<noClick){e.stopImmediatePropagation();e.preventDefault()}},true);
+});
 
 /* ---------- 分类操作 ---------- */
 catsEl.addEventListener('click',function(e){
