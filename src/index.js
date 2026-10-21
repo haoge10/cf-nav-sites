@@ -1712,6 +1712,10 @@ const ADMIN_CSS = `
 .crow.over{outline:2px solid var(--accent);outline-offset:-2px;background:var(--accent-soft)}
 .grip{color:var(--faint);cursor:grab;user-select:none;font-size:15px;line-height:1;padding:4px 2px;letter-spacing:-2px;flex:none}
 .grip.off{opacity:.25;cursor:not-allowed}
+.grip{touch-action:none}
+@media(hover:none){.grip{padding:10px 10px;font-size:18px}}
+.row.tdrag,.crow.tdrag{position:relative;z-index:30;opacity:.92;background:var(--surface2);border-color:var(--accent);box-shadow:var(--shadow)}
+body.tdragging{user-select:none;-webkit-user-select:none}
 .mini{width:26px;height:26px;border-radius:7px;border:none;background:none;color:var(--muted);display:inline-flex;align-items:center;justify-content:center}
 .mini:hover{background:var(--surface);color:var(--text)}.mini.danger:hover{color:var(--bad)}
 .list{display:flex;flex-direction:column;gap:8px}
@@ -1911,6 +1915,78 @@ catsEl.addEventListener('drop',function(e){
   endDrag();render();
 });
 catsEl.addEventListener('dragend',function(){endDrag()});
+/* ---------- 触屏拖动：按住 ⋮⋮ 手柄拖（鼠标仍用上面的原生拖放） ----------
+   行跟着手指走，下面的行 / 分类高亮；松手后复用上面同样的排序、移动逻辑。靠近屏幕上下边缘会自动滚动。 */
+var noClick=0;
+function touchDrag(e,kind){
+  if(e.pointerType==='mouse')return;
+  var grip=e.target.closest('.grip');
+  if(!grip||grip.classList.contains('off'))return;
+  var item=grip.closest(kind==='link'?'.row':'.crow');if(!item)return;
+  e.preventDefault();
+  var id=item.getAttribute('data-id'),pid=e.pointerId,wasDrag=item.getAttribute('draggable');
+  var px=e.clientX,py=e.clientY,r0=item.getBoundingClientRect(),ox=px-r0.left,oy=py-r0.top,over=null,raf=0;
+  try{grip.setPointerCapture(pid)}catch(x){}
+  item.setAttribute('draggable','false'); /* 避免和浏览器自带的长按拖放冲突 */
+  item.classList.add('tdrag');document.body.classList.add('tdragging');
+
+  function place(){
+    item.style.transform='';
+    var r=item.getBoundingClientRect();
+    item.style.transform='translate('+(px-ox-r.left)+'px,'+(py-oy-r.top)+'px)';
+  }
+  function hit(){
+    var els=document.elementsFromPoint(px,py),i,t;
+    for(i=0;i<els.length;i++){
+      if(item.contains(els[i]))continue;
+      t=els[i].closest(kind==='link'?'.row,.crow':'.crow');
+      if(t&&t!==item)return t;
+    }
+    return null;
+  }
+  function frame(){
+    raf=requestAnimationFrame(frame);
+    if(py<80)window.scrollBy(0,-12);else if(py>window.innerHeight-80)window.scrollBy(0,12);
+    place();
+    var t=hit();
+    if(t!==over){if(over)over.classList.remove('over');over=t;if(over)over.classList.add('over')}
+  }
+  function move(ev){if(ev.pointerId!==pid)return;px=ev.clientX;py=ev.clientY}
+  function up(ev){
+    if(ev.pointerId!==pid)return;
+    window.removeEventListener('pointermove',move);
+    window.removeEventListener('pointerup',up);
+    window.removeEventListener('pointercancel',up);
+    cancelAnimationFrame(raf);
+    item.classList.remove('tdrag');item.style.transform='';
+    if(wasDrag!==null)item.setAttribute('draggable',wasDrag);
+    document.body.classList.remove('tdragging');
+    var t=over;if(t)t.classList.remove('over');
+    noClick=Date.now()+400;
+    if(t&&ev.type==='pointerup'){
+      var tid=t.getAttribute('data-id');
+      if(kind==='cat'){
+        var ca=catOf(id),cb=catOf(tid);
+        if(ca&&cb&&ca!==cb){reorder(data.categories,ca,cb);save()}
+      }else if(t.classList.contains('row')){
+        var a=linkOf(id),b=linkOf(tid);
+        if(a&&b&&a!==b&&a.cat===b.cat){reorder(data.links,a,b);save()}
+      }else{
+        var l=linkOf(id);
+        if(l&&l.cat!==tid){moveLinkToCat(l,tid);toast('已移动到「'+catOf(tid).name+'」');save()}
+      }
+    }
+    render();
+  }
+  window.addEventListener('pointermove',move);
+  window.addEventListener('pointerup',up);
+  window.addEventListener('pointercancel',up);
+  frame();
+}
+linksEl.addEventListener('pointerdown',function(e){touchDrag(e,'link')});
+catsEl.addEventListener('pointerdown',function(e){touchDrag(e,'cat')});
+/* 拖完松手时浏览器可能补发一次点击，会误切换分类，拦掉 */
+catsEl.addEventListener('click',function(e){if(Date.now()<noClick){e.stopImmediatePropagation();e.preventDefault()}},true);
 
 /* ---------- 分类操作 ---------- */
 catsEl.addEventListener('click',function(e){
